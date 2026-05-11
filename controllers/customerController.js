@@ -1,0 +1,256 @@
+const conexionBD = require('../config/db');
+
+const customerController = {
+    
+    async getMe(pedido, respuesta) {
+        try {
+            const consulta = 'SELECT id, name, email, primarylastname, secondarylastname, phone, birth_date, role FROM users WHERE id = $1';
+            const resultado = await conexionBD.query(consulta, [pedido.usuario.id]);
+            if (resultado.rowCount === 0) return respuesta.status(404).json({ mensaje: 'Usuario no encontrado' });
+            respuesta.json(resultado.rows[0]);
+        } catch (error) {
+            console.error(error);
+            respuesta.status(500).json({ mensaje: 'Error al obtener perfil' });
+        }
+    },
+
+    async updateMe(pedido, respuesta) {
+        const { nombre, apellido1, apellido2, telefono, fecha_nacimiento } = pedido.body;
+        try {
+            const consulta = `
+                UPDATE users 
+                SET name = COALESCE($1, name), 
+                    primarylastname = COALESCE($2, primarylastname), 
+                    secondarylastname = COALESCE($3, secondarylastname), 
+                    phone = COALESCE($4, phone), 
+                    birth_date = COALESCE($5, birth_date),
+                    updated_at = NOW()
+                WHERE id = $6
+                RETURNING id, name, email, primarylastname, secondarylastname, phone, birth_date
+            `;
+            const resultado = await conexionBD.query(consulta, [nombre, apellido1, apellido2, telefono, fecha_nacimiento, pedido.usuario.id]);
+            respuesta.json(resultado.rows[0]);
+        } catch (error) {
+            console.error(error);
+            respuesta.status(500).json({ mensaje: 'Error al actualizar perfil' });
+        }
+    },
+
+    async getReservations(pedido, respuesta) {
+        try {
+            const consulta = `
+                SELECT r.*, f.flight_code, f.departure_date, d.name as destination_name
+                FROM reservations r
+                LEFT JOIN flights f ON r.space_flight_id = f.id
+                LEFT JOIN destinations d ON f.destination_id = d.id
+                WHERE r.user_id = $1
+                ORDER BY r.created_at DESC
+            `;
+            const resultado = await conexionBD.query(consulta, [pedido.usuario.id]);
+            respuesta.json({ total: resultado.rowCount, datos: resultado.rows });
+        } catch (error) {
+            console.error(error);
+            respuesta.status(500).json({ mensaje: 'Error al obtener reservas' });
+        }
+    },
+
+    async getReservationById(pedido, respuesta) {
+        const { id } = pedido.params;
+        try {
+            const consulta = `
+                SELECT r.*, f.flight_code, f.departure_date, d.name as destination_name, 
+                       l.hotel_id, l.training_included, l.refund_insurance_included
+                FROM reservations r
+                LEFT JOIN flights f ON r.space_flight_id = f.id
+                LEFT JOIN destinations d ON f.destination_id = d.id
+                LEFT JOIN reservation_logistics l ON r.id = l.reservation_id
+                WHERE r.id = $1 AND r.user_id = $2
+            `;
+            const resultado = await conexionBD.query(consulta, [id, pedido.usuario.id]);
+            if (resultado.rowCount === 0) return respuesta.status(404).json({ mensaje: 'Reserva no encontrada' });
+            respuesta.json(resultado.rows[0]);
+        } catch (error) {
+            console.error(error);
+            respuesta.status(500).json({ mensaje: 'Error al obtener la reserva' });
+        }
+    },
+
+    async createReservation(pedido, respuesta) {
+        const { space_flight_id, passenger_id, seat_type, total_price, logistics } = pedido.body;
+        try {
+            // Iniciar transaccion
+            await conexionBD.query('BEGIN');
+            
+            const consultaReserva = `
+                INSERT INTO reservations (user_id, passenger_id, space_flight_id, seat_type, total_price, status, id_locator, created_at, updated_at)
+                VALUES ($1, $2, $3, $4, $5, 'Pendiente', gen_random_uuid(), NOW(), NOW())
+                RETURNING id
+            `;
+            const resReserva = await conexionBD.query(consultaReserva, [pedido.usuario.id, passenger_id, space_flight_id, seat_type, total_price]);
+            const reservaId = resReserva.rows[0].id;
+
+            if (logistics) {
+                const consultaLogistica = `
+                    INSERT INTO reservation_logistics (reservation_id, hotel_id, hotel_nights, training_included, refund_insurance_included, created_at, updated_at)
+                    VALUES ($1, $2, $3, $4, $5, NOW(), NOW())
+                `;
+                await conexionBD.query(consultaLogistica, [reservaId, logistics.hotel_id, logistics.hotel_nights, logistics.training_included, logistics.refund_insurance_included]);
+            }
+
+            await conexionBD.query('COMMIT');
+            respuesta.status(201).json({ id: reservaId, mensaje: 'Reserva creada con éxito' });
+        } catch (error) {
+            await conexionBD.query('ROLLBACK');
+            console.error(error);
+            respuesta.status(500).json({ mensaje: 'Error al crear la reserva' });
+        }
+    },
+
+    async cancelReservation(pedido, respuesta) {
+        const { id } = pedido.params;
+        try {
+            const consulta = 'UPDATE reservations SET status = \'Cancelada\', updated_at = NOW() WHERE id = $1 AND user_id = $2 RETURNING *';
+            const resultado = await conexionBD.query(consulta, [id, pedido.usuario.id]);
+            if (resultado.rowCount === 0) return respuesta.status(404).json({ mensaje: 'Reserva no encontrada' });
+            respuesta.json({ mensaje: 'Solicitud de cancelación procesada', reserva: resultado.rows[0] });
+        } catch (error) {
+            console.error(error);
+            respuesta.status(500).json({ mensaje: 'Error al cancelar la reserva' });
+        }
+    },
+
+    async getPassengers(pedido, respuesta) {
+        try {
+            const consulta = 'SELECT * FROM passengers WHERE user_id = $1 ORDER BY name ASC';
+            const resultado = await conexionBD.query(consulta, [pedido.usuario.id]);
+            respuesta.json({ total: resultado.rowCount, datos: resultado.rows });
+        } catch (error) {
+            console.error(error);
+            respuesta.status(500).json({ mensaje: 'Error al obtener pasajeros' });
+        }
+    },
+
+    async createPassenger(pedido, respuesta) {
+        const { nombre, apellido1, apellido2, dni, pais, fecha_nacimiento } = pedido.body;
+        try {
+            const consulta = `
+                INSERT INTO passengers (user_id, name, primarylastname, secondarylastname, document_number, document_country, birth_date, created_at, updated_at)
+                VALUES ($1, $2, $3, $4, $5, $6, $7, NOW(), NOW())
+                RETURNING *
+            `;
+            const resultado = await conexionBD.query(consulta, [pedido.usuario.id, nombre, apellido1, apellido2, dni, pais, fecha_nacimiento]);
+            respuesta.status(201).json(resultado.rows[0]);
+        } catch (error) {
+            console.error(error);
+            respuesta.status(500).json({ mensaje: 'Error al registrar pasajero' });
+        }
+    },
+
+    async updatePassenger(pedido, respuesta) {
+        const { id } = pedido.params;
+        const { nombre, apellido1, apellido2, dni, pais, fecha_nacimiento } = pedido.body;
+        try {
+            const consulta = `
+                UPDATE passengers 
+                SET name = COALESCE($1, name), 
+                    primarylastname = COALESCE($2, primarylastname), 
+                    secondarylastname = COALESCE($3, secondarylastname), 
+                    document_number = COALESCE($4, document_number), 
+                    document_country = COALESCE($5, document_country), 
+                    birth_date = COALESCE($6, birth_date),
+                    updated_at = NOW()
+                WHERE id = $7 AND user_id = $8
+                RETURNING *
+            `;
+            const resultado = await conexionBD.query(consulta, [nombre, apellido1, apellido2, dni, pais, fecha_nacimiento, id, pedido.usuario.id]);
+            if (resultado.rowCount === 0) return respuesta.status(404).json({ mensaje: 'Pasajero no encontrado' });
+            respuesta.json(resultado.rows[0]);
+        } catch (error) {
+            console.error(error);
+            respuesta.status(500).json({ mensaje: 'Error al actualizar pasajero' });
+        }
+    },
+
+    async deletePassenger(pedido, respuesta) {
+        const { id } = pedido.params;
+        try {
+            const consulta = 'DELETE FROM passengers WHERE id = $1 AND user_id = $2 RETURNING id';
+            const resultado = await conexionBD.query(consulta, [id, pedido.usuario.id]);
+            if (resultado.rowCount === 0) return respuesta.status(404).json({ mensaje: 'Pasajero no encontrado' });
+            respuesta.json({ mensaje: 'Pasajero eliminado', id: resultado.rows[0].id });
+        } catch (error) {
+            console.error(error);
+            respuesta.status(500).json({ mensaje: 'Error al eliminar pasajero' });
+        }
+    },
+
+    async getDocuments(pedido, respuesta) {
+        try {
+            const consulta = 'SELECT id, name, document_number, passport_status, iris_passport_number FROM passengers WHERE user_id = $1';
+            const resultado = await conexionBD.query(consulta, [pedido.usuario.id]);
+            respuesta.json({ total: resultado.rowCount, datos: resultado.rows });
+        } catch (error) {
+            console.error(error);
+            respuesta.status(500).json({ mensaje: 'Error al obtener documentos' });
+        }
+    },
+
+    async getPassport(pedido, respuesta) {
+        const { passengerId } = pedido.params;
+        try {
+            const consulta = 'SELECT passport_pdf FROM passengers WHERE id = $1 AND user_id = $2';
+            const resultado = await conexionBD.query(consulta, [passengerId, pedido.usuario.id]);
+            if (resultado.rowCount === 0 || !resultado.rows[0].passport_pdf) {
+                return respuesta.status(404).json({ mensaje: 'Pasaporte no disponible' });
+            }
+            respuesta.json({ url: resultado.rows[0].passport_pdf });
+        } catch (error) {
+            console.error(error);
+            respuesta.status(500).json({ mensaje: 'Error al obtener el pasaporte' });
+        }
+    },
+
+    async getMessages(pedido, respuesta) {
+        try {
+            const consulta = 'SELECT * FROM contact_logs WHERE client_id = $1 ORDER BY created_at DESC';
+            const resultado = await conexionBD.query(consulta, [pedido.usuario.id]);
+            respuesta.json({ total: resultado.rowCount, datos: resultado.rows });
+        } catch (error) {
+            console.error(error);
+            respuesta.status(500).json({ mensaje: 'Error al obtener mensajes' });
+        }
+    },
+
+    async sendMessage(pedido, respuesta) {
+        const { mensaje } = pedido.body;
+        try {
+            // Buscamos el gestor asignado al cliente
+            const resUser = await conexionBD.query('SELECT assigned_manager_id FROM users WHERE id = $1', [pedido.usuario.id]);
+            const gestorId = resUser.rows[0].assigned_manager_id || 1; // Fallback al gestor 1 si no hay asignado
+
+            const consulta = `
+                INSERT INTO contact_logs (client_id, gestor_id, type, notes, created_at, updated_at)
+                VALUES ($1, $2, 'nota', $3, NOW(), NOW())
+                RETURNING *
+            `;
+            const resultado = await conexionBD.query(consulta, [pedido.usuario.id, gestorId, mensaje]);
+            respuesta.status(201).json(resultado.rows[0]);
+        } catch (error) {
+            console.error(error);
+            respuesta.status(500).json({ mensaje: 'Error al enviar mensaje' });
+        }
+    },
+
+    async getPayments(pedido, respuesta) {
+        try {
+            const consulta = 'SELECT id, total_price, status, payment_status, paid_at, stripe_receipt_url FROM reservations WHERE user_id = $1 AND payment_status = \'paid\' ORDER BY paid_at DESC';
+            const resultado = await conexionBD.query(consulta, [pedido.usuario.id]);
+            respuesta.json({ total: resultado.rowCount, datos: resultado.rows });
+        } catch (error) {
+            console.error(error);
+            respuesta.status(500).json({ mensaje: 'Error al obtener pagos' });
+        }
+    }
+};
+
+module.exports = customerController;
