@@ -58,11 +58,52 @@ const authController = {
             const resultado = await conexionBD.query('SELECT * FROM users WHERE email = $1', [email]);
             if (resultado.rowCount === 0) return respuesta.status(404).json({ mensaje: 'No existe un usuario con ese correo' });
             
-            // Aqui iria la logica para enviar un correo con un token de recuperacion
-            respuesta.json({ mensaje: 'Si el correo existe, se ha enviado un enlace para restablecer la contraseña.' });
+            // Generamos un token aleatorio de 6 dígitos para la recuperación de contraseña
+            const token = Math.floor(100000 + Math.random() * 900000).toString();
+            const expiracion = new Date();
+            expiracion.setHours(expiracion.getHours() + 1); // 1 hora de validez
+
+            await conexionBD.query(
+                'UPDATE users SET reset_password_token = $1, reset_password_expires = $2 WHERE email = $3',
+                [token, expiracion, email]
+            );
+
+            // Esto es solo simulación
+            //Realmente aquí deberías enviar un correo electrónico al usuario con el token de recuperación
+            console.log(`[IRIS AUTH] Token de recuperación para ${email}: ${token}`);
+            
+            respuesta.json({ 
+                mensaje: 'Se ha enviado un código de recuperación a su correo electrónico.',
+                debug_token: token 
+            });
         } catch (error) {
             console.error(error);
             respuesta.status(500).json({ mensaje: 'Error al procesar la solicitud' });
+        }
+    },
+
+    async resetPassword(pedido, respuesta) {
+        const { email, token, newPassword } = pedido.body;
+        try {
+            const resultado = await conexionBD.query(
+                'SELECT * FROM users WHERE email = $1 AND reset_password_token = $2 AND reset_password_expires > NOW()',
+                [email, token]
+            );
+
+            if (resultado.rowCount === 0) return respuesta.status(400).json({ mensaje: 'Código inválido o expirado' });
+
+            const sal = await bcrypt.genSalt(10);
+            const passwordHasheada = await bcrypt.hash(newPassword, sal);
+
+            await conexionBD.query(
+                'UPDATE users SET password = $1, reset_password_token = NULL, reset_password_expires = NULL WHERE email = $2',
+                [passwordHasheada, email]
+            );
+
+            respuesta.json({ mensaje: 'Contraseña restablecida con éxito' });
+        } catch (error) {
+            console.error(error);
+            respuesta.status(500).json({ mensaje: 'Error al restablecer la contraseña' });
         }
     }
 };
