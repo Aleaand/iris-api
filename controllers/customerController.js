@@ -113,9 +113,9 @@ const customerController = {
                     const resRes = await conexionBD.query(`
                         INSERT INTO reservations (
                             user_id, passenger_id, space_flight_id, seat_type, total_price, 
-                            status, id_locator, booking_group_id, payment_status, created_at, updated_at
+                            status, id_locator, booking_group_id, payment_status, price_snapshot, created_at, updated_at
                         )
-                        VALUES ($1, $2, $3, $4, $5, 'Pendiente', $6, $7, 'pending', NOW(), NOW())
+                        VALUES ($1, $2, $3, $4, $5, 'Pendiente', $6, $7, 'pending', $8, NOW(), NOW())
                         RETURNING id
                     `, [
                         pedido.usuario.id, 
@@ -124,7 +124,8 @@ const customerController = {
                         clase_asiento || 'none', 
                         (precio_total / pasajeros.length), 
                         require('crypto').randomUUID(),
-                        bookingGroupId
+                        bookingGroupId,
+                        pedido.body.price_snapshot || null
                     ]);
                     lastReservaId = resRes.rows[0].id;
 

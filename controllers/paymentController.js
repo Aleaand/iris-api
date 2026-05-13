@@ -47,11 +47,23 @@ const paymentController = {
                 const paymentIntent = evento.data.object;
                 const reservaId = paymentIntent.metadata.reserva_id;
                 const usuarioId = paymentIntent.metadata.usuario_id;
+                // Intentar obtener el recibo de los cargos asociados
                 const cargos = await stripe.charges.list({ payment_intent: paymentIntent.id });
                 const receiptUrl = cargos.data.length > 0 ? cargos.data[0].receipt_url : null;
+                
+                // Generar el JSON de stripe_receipts para compatibilidad con Laravel
+                const stripeReceipts = JSON.stringify([{
+                    type: 'payment',
+                    amount: (paymentIntent.amount / 100).toFixed(2),
+                    date: new Date().toISOString().slice(0, 19).replace('T', ' '),
+                    description: 'Pago Original (Checkout)',
+                    url: receiptUrl
+                }]);
+
+                // 1. Actualizar Reserva con estado Pagado, recibos y session_id
                 await conexionBD.query(
-                    'UPDATE reservations SET payment_status = $1, paid_at = NOW(), status = $2, stripe_receipt_url = $3 WHERE id = $4',
-                    ['paid', 'Confirmada', receiptUrl, reservaId]
+                    'UPDATE reservations SET payment_status = $1, paid_at = NOW(), status = $2, stripe_receipt_url = $3, stripe_receipts = $4, stripe_session_id = $5 WHERE id = $6',
+                    ['paid', 'Confirmada', receiptUrl, stripeReceipts, paymentIntent.id, reservaId]
                 );
                 const resUser = await conexionBD.query('SELECT assigned_manager_id, name FROM users WHERE id = $1', [usuarioId]);
                 const gestorId = resUser.rows[0]?.assigned_manager_id;
