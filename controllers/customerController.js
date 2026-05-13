@@ -98,10 +98,12 @@ const customerController = {
 
             if (pasajeros && Array.isArray(pasajeros)) {
                 for (const p of pasajeros) {
-                    // 1. Registrar Pasajero
+                    // 1. Registrar Pasajero (UPSERT: Si ya existe por DNI/País, lo actualizamos y obtenemos el ID)
                     const resPax = await conexionBD.query(`
                         INSERT INTO passengers (user_id, name, primarylastname, secondarylastname, document_number, document_country, birth_date, created_at, updated_at)
                         VALUES ($1, $2, $3, $4, $5, $6, $7, NOW(), NOW())
+                        ON CONFLICT (document_number, document_country) 
+                        DO UPDATE SET updated_at = NOW(), name = EXCLUDED.name
                         RETURNING id
                     `, [pedido.usuario.id, p.nombre, p.apellido1, p.apellido2, p.dni, p.pais, p.fecha_nacimiento]);
                     const paxId = resPax.rows[0].id;
