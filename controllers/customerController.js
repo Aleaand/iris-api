@@ -81,75 +81,78 @@ const customerController = {
 
     async createReservation(pedido, respuesta) {
         const { 
-            space_flight_id, vuelo_id,
-            passenger_id, 
-            seat_type, clase_asiento,
-            total_price, precio_total,
-            pasajeros, passengers,
+            vuelo_id, vuelo_regreso_id,
+            cantidad_pasajeros,
+            clase_asiento,
+            precio_total,
+            pasajeros,
             logistics 
         } = pedido.body;
-
-        const flightId = vuelo_id || space_flight_id;
-        const seatType = clase_asiento || seat_type;
-        const totalPrice = precio_total || total_price;
-        const tripulantes = pasajeros || passengers;
 
         try {
             await conexionBD.query('BEGIN');
             
+            // Generar un ID de grupo para todas las reservas de esta transacción
+            const bookingGroupId = require('crypto').randomUUID();
             let lastReservaId;
 
-            if (tripulantes && Array.isArray(tripulantes)) {
-                for (const p of tripulantes) {
-                    const nombre = p.nombre || p.name;
-                    const apellido1 = p.apellido1 || p.primarylastname;
-                    const apellido2 = p.apellido2 || p.secondarylastname || "";
-                    const dni = p.dni || p.document_number;
-                    const pais = p.pais || p.document_country || "ESP";
-                    const fecha_nacimiento = p.fecha_nacimiento || p.birth_date;
-
+            if (pasajeros && Array.isArray(pasajeros)) {
+                for (const p of pasajeros) {
+                    // 1. Registrar Pasajero
                     const resPax = await conexionBD.query(`
                         INSERT INTO passengers (user_id, name, primarylastname, secondarylastname, document_number, document_country, birth_date, created_at, updated_at)
                         VALUES ($1, $2, $3, $4, $5, $6, $7, NOW(), NOW())
                         RETURNING id
-                    `, [pedido.usuario.id, nombre, apellido1, apellido2, dni, pais, fecha_nacimiento]);
+                    `, [pedido.usuario.id, p.nombre, p.apellido1, p.apellido2, p.dni, p.pais, p.fecha_nacimiento]);
                     const paxId = resPax.rows[0].id;
+
+                    // 2. Crear Reserva (Siguiendo esquema Laravel)
+                    // Nota: El precio se distribuye o se asigna por pasajero según la lógica de la web
                     const resRes = await conexionBD.query(`
-                        INSERT INTO reservations (user_id, passenger_id, space_flight_id, seat_type, total_price, status, id_locator, created_at, updated_at)
-                        VALUES ($1, $2, $3, $4, $5, 'Pendiente', UPPER(LEFT(gen_random_uuid()::text, 8)), NOW(), NOW())
+                        INSERT INTO reservations (
+                            user_id, passenger_id, space_flight_id, seat_type, total_price, 
+                            status, id_locator, booking_group_id, payment_status, created_at, updated_at
+                        )
+                        VALUES ($1, $2, $3, $4, $5, 'Pendiente', $6, $7, 'pending', NOW(), NOW())
                         RETURNING id
-                    `, [pedido.usuario.id, paxId, flightId, seatType, (totalPrice / tripulantes.length)]);
+                    `, [
+                        pedido.usuario.id, 
+                        paxId, 
+                        vuelo_id, 
+                        clase_asiento || 'none', 
+                        (precio_total / pasajeros.length), 
+                        require('crypto').randomUUID(),
+                        bookingGroupId
+                    ]);
                     lastReservaId = resRes.rows[0].id;
 
+                    // 3. Logística Detallada
                     if (logistics) {
                         await conexionBD.query(`
-                            INSERT INTO reservation_logistics (reservation_id, hotel_id, hotel_nights, training_included, refund_insurance_included, created_at, updated_at)
-                            VALUES ($1, $2, $3, $4, $5, NOW(), NOW())
-                        `, [lastReservaId, logistics.hotel_id, logistics.hotel_nights || 0, (p.training_mode === 'request'), (p.passport_mode === 'request')]);
+                            INSERT INTO reservation_logistics (
+                                reservation_id, hotel_id, hotel_nights, hotel_check_in, hotel_check_out,
+                                training_included, refund_insurance_included, created_at, updated_at
+                            )
+                            VALUES ($1, $2, $3, $4, $5, $6, $7, NOW(), NOW())
+                        `, [
+                            lastReservaId, 
+                            logistics.hotel_id, 
+                            logistics.hotel_nights || 0,
+                            logistics.hotel_from,
+                            logistics.hotel_to,
+                            (p.training_mode === 'request'),
+                            (p.passport_mode === 'request') // Asumimos seguro si solicita pasaporte o similar según lógica previa
+                        ]);
                     }
-                }
-            } else {
-                const resRes = await conexionBD.query(`
-                    INSERT INTO reservations (user_id, passenger_id, space_flight_id, seat_type, total_price, status, id_locator, created_at, updated_at)
-                    VALUES ($1, $2, $3, $4, $5, 'Pendiente', UPPER(LEFT(gen_random_uuid()::text, 8)), NOW(), NOW())
-                    RETURNING id
-                `, [pedido.usuario.id, passenger_id, flightId, seatType, totalPrice]);
-                lastReservaId = resRes.rows[0].id;
-
-                if (logistics) {
-                    await conexionBD.query(`
-                        INSERT INTO reservation_logistics (reservation_id, hotel_id, hotel_nights, training_included, refund_insurance_included, created_at, updated_at)
-                        VALUES ($1, $2, $3, $4, $5, NOW(), NOW())
-                    `, [lastReservaId, logistics.hotel_id, logistics.hotel_nights || 0, logistics.training_included || false, logistics.refund_insurance_included || false]);
                 }
             }
 
             await conexionBD.query('COMMIT');
-            respuesta.status(201).json({ id: lastReservaId, mensaje: 'Misión registrada con éxito' });
+            respuesta.status(201).json({ id: lastReservaId, mensaje: 'Misión sincronizada con el Centro de Control' });
         } catch (error) {
             await conexionBD.query('ROLLBACK');
-            console.error('Error en createReservation:', error);
-            respuesta.status(500).json({ mensaje: 'Error al registrar la misión en el sistema central' });
+            console.error('Error en Sincronización Iris:', error);
+            respuesta.status(500).json({ mensaje: 'Error al sincronizar misión con el sistema central' });
         }
     },
 
