@@ -12,7 +12,7 @@ const rutasPagos = require('./routes/paymentRoutes');
 const rutasInfo = require('./routes/infoRoutes');
 
 servidor.use((pedido, respuesta, siguiente) => {
-  if (pedido.originalUrl === '/api/v1/payments/webhook') {
+  if (pedido.originalUrl.includes('/payments/webhook')) {
     siguiente();
   } else {
     express.json()(pedido, respuesta, siguiente);
