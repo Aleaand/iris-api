@@ -15,7 +15,11 @@ const customerController = {
     },
 
     async updateMe(pedido, respuesta) {
-        const { nombre, apellido1, apellido2, telefono, fecha_nacimiento } = pedido.body;
+        const nombre = pedido.body.nombre || pedido.body.name;
+        const apellido1 = pedido.body.apellido1 || pedido.body.primarylastname;
+        const apellido2 = pedido.body.apellido2 || pedido.body.secondarylastname;
+        const telefono = pedido.body.telefono || pedido.body.phone;
+        const fecha_nacimiento = pedido.body.fecha_nacimiento || pedido.body.birth_date;
         try {
             const consulta = `
                 UPDATE users 
@@ -131,7 +135,14 @@ const customerController = {
     },
 
     async createPassenger(pedido, respuesta) {
-        const { nombre, apellido1, apellido2, dni, pais, fecha_nacimiento } = pedido.body;
+        // Soporte para nombres de campos tanto en español como en inglés
+        const nombre = pedido.body.nombre || pedido.body.name;
+        const apellido1 = pedido.body.apellido1 || pedido.body.primarylastname;
+        const apellido2 = pedido.body.apellido2 || pedido.body.secondarylastname || "";
+        const dni = pedido.body.dni || pedido.body.document_number;
+        const pais = pedido.body.pais || pedido.body.document_country || "ESP";
+        const fecha_nacimiento = pedido.body.fecha_nacimiento || pedido.body.birth_date;
+
         try {
             const consulta = `
                 INSERT INTO passengers (user_id, name, primarylastname, secondarylastname, document_number, document_country, birth_date, created_at, updated_at)
@@ -148,7 +159,13 @@ const customerController = {
 
     async updatePassenger(pedido, respuesta) {
         const { id } = pedido.params;
-        const { nombre, apellido1, apellido2, dni, pais, fecha_nacimiento } = pedido.body;
+        const nombre = pedido.body.nombre || pedido.body.name;
+        const apellido1 = pedido.body.apellido1 || pedido.body.primarylastname;
+        const apellido2 = pedido.body.apellido2 || pedido.body.secondarylastname;
+        const dni = pedido.body.dni || pedido.body.document_number;
+        const pais = pedido.body.pais || pedido.body.document_country;
+        const fecha_nacimiento = pedido.body.fecha_nacimiento || pedido.body.birth_date;
+        
         try {
             const consulta = `
                 UPDATE passengers 

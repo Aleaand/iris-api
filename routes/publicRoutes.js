@@ -21,4 +21,7 @@ router.get('/terrestrial-flights', publicController.getTerrestrialFlights);
 // Tarifas
 router.get('/tariffs', publicController.getTariffs);
 
+// Localizaciones
+router.get('/locations', publicController.getLocations);
+
 module.exports = router;

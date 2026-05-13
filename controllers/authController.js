@@ -5,7 +5,11 @@ const jwt = require('jsonwebtoken');
 const authController = {
     
     async register(pedido, respuesta) {
-        const { nombre, email, password, apellido1, apellido2 } = pedido.body;
+        const nombre = pedido.body.nombre || pedido.body.name;
+        const email = pedido.body.email;
+        const password = pedido.body.password;
+        const apellido1 = pedido.body.apellido1 || pedido.body.primarylastname;
+        const apellido2 = pedido.body.apellido2 || pedido.body.secondarylastname || "";
         try {
             const usuarioExistente = await conexionBD.query('SELECT * FROM users WHERE email = $1', [email]);
             if (usuarioExistente.rowCount > 0) return respuesta.status(400).json({ mensaje: 'El correo electrónico ya está registrado' });

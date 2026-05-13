@@ -166,6 +166,17 @@ const publicController = {
             console.error(error);
             respuesta.status(500).json({ mensaje: 'Error al obtener tarifas' });
         }
+    },
+
+    async getLocations(pedido, respuesta) {
+        try {
+            const consulta = 'SELECT * FROM locations ORDER BY name ASC';
+            const resultado = await conexionBD.query(consulta);
+            respuesta.json({ total: resultado.rowCount, datos: resultado.rows });
+        } catch (error) {
+            console.error(error);
+            respuesta.status(500).json({ mensaje: 'Error al obtener localizaciones' });
+        }
     }
 };
 
