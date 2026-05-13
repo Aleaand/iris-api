@@ -152,7 +152,11 @@ const customerController = {
         } catch (error) {
             await conexionBD.query('ROLLBACK');
             console.error('Error en Sincronización Iris:', error);
-            respuesta.status(500).json({ mensaje: 'Error al sincronizar misión con el sistema central' });
+            respuesta.status(500).json({ 
+                mensaje: 'Error al sincronizar misión con el sistema central',
+                error: error.message,
+                detalle: error.detail || 'No hay detalles adicionales'
+            });
         }
     },
 
