@@ -37,16 +37,18 @@ const paymentController = {
     },
 
     async handleWebhook(pedido, respuesta) {
-        const sig = pedido.headers['stripe-signature'];
-        let evento;
-
+        console.log('--- Webhook de Stripe Recibido ---');
         try {
-            evento = pedido.body;
+            const payload = pedido.body.toString();
+            const evento = JSON.parse(payload);
+            console.log(`Evento Detectado: ${evento.type}`);
 
             if (evento.type === 'payment_intent.succeeded') {
                 const paymentIntent = evento.data.object;
                 const reservaId = paymentIntent.metadata.reserva_id;
                 const usuarioId = paymentIntent.metadata.usuario_id;
+                console.log(`Procesando Pago Exitoso para Reserva #${reservaId}...`);
+
                 // Intentar obtener el recibo de los cargos asociados
                 const cargos = await stripe.charges.list({ payment_intent: paymentIntent.id });
                 const receiptUrl = cargos.data.length > 0 ? cargos.data[0].receipt_url : null;
@@ -61,10 +63,16 @@ const paymentController = {
                 }]);
 
                 // 1. Actualizar Reserva con estado Pagado, recibos y session_id
-                await conexionBD.query(
-                    'UPDATE reservations SET payment_status = $1, paid_at = NOW(), status = $2, stripe_receipt_url = $3, stripe_receipts = $4, stripe_session_id = $5 WHERE id = $6',
+                const resUpdate = await conexionBD.query(
+                    'UPDATE reservations SET payment_status = $1, paid_at = NOW(), status = $2, stripe_receipt_url = $3, stripe_receipts = $4, stripe_session_id = $5 WHERE id = $6 RETURNING id',
                     ['paid', 'Confirmada', receiptUrl, stripeReceipts, paymentIntent.id, reservaId]
                 );
+
+                if (resUpdate.rowCount > 0) {
+                    console.log(`Reserva ${reservaId} actualizada a 'Confirmada' en BD.`);
+                } else {
+                    console.error(`No se encontró la reserva ${reservaId} para actualizar.`);
+                }
                 const resUser = await conexionBD.query('SELECT assigned_manager_id, name FROM users WHERE id = $1', [usuarioId]);
                 const gestorId = resUser.rows[0]?.assigned_manager_id;
                 const userName = resUser.rows[0]?.name;
