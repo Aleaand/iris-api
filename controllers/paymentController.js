@@ -49,24 +49,28 @@ const paymentController = {
                 const usuarioId = paymentIntent.metadata.usuario_id;
                 console.log(`Procesando Pago Exitoso para Reserva #${reservaId}...`);
 
-                // Intentar obtener el recibo de los cargos asociados
                 const cargos = await stripe.charges.list({ payment_intent: paymentIntent.id });
                 const receiptUrl = cargos.data.length > 0 ? cargos.data[0].receipt_url : null;
                 
-                // Generar el JSON de stripe_receipts para compatibilidad con Laravel
-                const stripeReceipts = JSON.stringify([{
+                const stripeReceipts = [{
                     type: 'payment',
                     amount: (paymentIntent.amount / 100).toFixed(2),
                     date: new Date().toISOString().slice(0, 19).replace('T', ' '),
                     description: 'Pago Original (Checkout)',
                     url: receiptUrl
-                }]);
+                }];
 
-                // 1. Actualizar Reserva con estado Pagado, recibos y session_id
-                const resUpdate = await conexionBD.query(
-                    'UPDATE reservations SET payment_status = $1, paid_at = NOW(), status = $2, stripe_receipt_url = $3, stripe_receipts = $4, stripe_session_id = $5 WHERE id = $6 RETURNING id',
-                    ['paid', 'Confirmada', receiptUrl, stripeReceipts, paymentIntent.id, reservaId]
-                );
+                const resUpdate = await conexionBD.query(`
+                    UPDATE reservations 
+                    SET payment_status = 'paid', 
+                        status = 'Confirmada', 
+                        paid_at = NOW(), 
+                        stripe_receipt_url = $1, 
+                        stripe_receipts = $2, 
+                        stripe_session_id = $3 
+                    WHERE id = $4 
+                    RETURNING id
+                `, [receiptUrl, JSON.stringify(stripeReceipts), paymentIntent.id, parseInt(reservaId)]);
 
                 if (resUpdate.rowCount > 0) {
                     console.log(`Reserva ${reservaId} actualizada a 'Confirmada' en BD.`);
