@@ -46,13 +46,29 @@ const paymentController = {
             if (evento.type === 'payment_intent.succeeded') {
                 const paymentIntent = evento.data.object;
                 const reservaId = paymentIntent.metadata.reserva_id;
-
+                const usuarioId = paymentIntent.metadata.usuario_id;
+                const cargos = await stripe.charges.list({ payment_intent: paymentIntent.id });
+                const receiptUrl = cargos.data.length > 0 ? cargos.data[0].receipt_url : null;
                 await conexionBD.query(
-                    'UPDATE reservations SET payment_status = $1, paid_at = NOW(), status = $2 WHERE id = $3',
-                    ['paid', 'Confirmada', reservaId]
+                    'UPDATE reservations SET payment_status = $1, paid_at = NOW(), status = $2, stripe_receipt_url = $3 WHERE id = $4',
+                    ['paid', 'Confirmada', receiptUrl, reservaId]
                 );
+                const resUser = await conexionBD.query('SELECT assigned_manager_id, name FROM users WHERE id = $1', [usuarioId]);
+                const gestorId = resUser.rows[0]?.assigned_manager_id;
+                const userName = resUser.rows[0]?.name;
 
-                console.log(`Reserva ${reservaId} marcada como pagada.`);
+                if (gestorId) {
+                    await conexionBD.query(`
+                        INSERT INTO tasks (assigned_gestor_id, created_by, title, description, type, status, priority, created_at, updated_at)
+                        VALUES ($1, $2, $3, $4, 'passport', 'Pendiente', 'alta', NOW(), NOW())
+                    `, [gestorId, usuarioId, `Validar Pasaporte: ${userName}`, `Revisar documentación y Stellar Passport para la reserva #${reservaId}`]);
+                    await conexionBD.query(`
+                        INSERT INTO tasks (assigned_gestor_id, created_by, title, description, type, status, priority, created_at, updated_at)
+                        VALUES ($1, $2, $3, $4, 'training', 'Pendiente', 'media', NOW(), NOW())
+                    `, [gestorId, usuarioId, `Coordinar Training: ${userName}`, `Iniciar protocolos de entrenamiento físico para la misión #${reservaId}`]);
+                }
+
+                console.log(`Reserva ${reservaId} confirmada y tareas asignadas al gestor ${gestorId}.`);
             }
 
             respuesta.json({ recibido: true });

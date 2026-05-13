@@ -5,12 +5,20 @@ require('dotenv').config();
 const servidor = express();
 const puerto = process.env.PORT || 3000;
 servidor.use(cors());
-servidor.use(express.json());
 const rutasPublicas = require('./routes/publicRoutes');
 const rutasAuth = require('./routes/authRoutes');
 const rutasCliente = require('./routes/customerRoutes');
 const rutasPagos = require('./routes/paymentRoutes');
 const rutasInfo = require('./routes/infoRoutes');
+
+servidor.use((pedido, respuesta, siguiente) => {
+  if (pedido.originalUrl === '/api/v1/payments/webhook') {
+    siguiente();
+  } else {
+    express.json()(pedido, respuesta, siguiente);
+  }
+});
+
 servidor.use('/api/v1', rutasPublicas);
 servidor.use('/api/v1/auth', rutasAuth);
 servidor.use('/api/v1/me', rutasCliente);
