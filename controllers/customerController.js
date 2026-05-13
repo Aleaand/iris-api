@@ -128,22 +128,23 @@ const customerController = {
                     ]);
                     lastReservaId = resRes.rows[0].id;
 
-                    // 3. Logística Detallada
+                    // 3. Logística Detallada (Ajustada a la tabla real)
                     if (logistics) {
                         await conexionBD.query(`
                             INSERT INTO reservation_logistics (
-                                reservation_id, hotel_id, hotel_nights, hotel_check_in, hotel_check_out,
-                                training_included, refund_insurance_included, created_at, updated_at
+                                reservation_id, hotel_id, hotel_nights,
+                                training_included, vip_transfer_included, refund_insurance_included, passport_management_included,
+                                created_at, updated_at
                             )
                             VALUES ($1, $2, $3, $4, $5, $6, $7, NOW(), NOW())
                         `, [
                             lastReservaId, 
                             logistics.hotel_id, 
                             logistics.hotel_nights || 0,
-                            logistics.hotel_from,
-                            logistics.hotel_to,
                             (p.training_mode === 'request'),
-                            (p.passport_mode === 'request') // Asumimos seguro si solicita pasaporte o similar según lógica previa
+                            (logistics.vip_transfer || false),
+                            (p.passport_mode === 'request'), // Usamos esto como flag de seguro/pasaporte según lógica previa
+                            (p.passport_mode === 'request')
                         ]);
                     }
                 }
