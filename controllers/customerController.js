@@ -44,18 +44,29 @@ const customerController = {
         try {
             const consulta = `
                 SELECT 
-                    r.*, 
-                    f.flight_code, f.departure_date, f.arrival_date,
-                    d.name as destination_name, 
-                    o.name as origin_name,
-                    s.name as starship_name
+                    r.booking_group_id,
+                    MIN(r.id) as id,
+                    MIN(r.status) as status,
+                    MIN(r.payment_status) as payment_status,
+                    SUM(r.total_price) as total_price,
+                    MIN(r.created_at) as created_at,
+                    MIN(f.flight_code) as flight_code,
+                    MIN(f.departure_date) as departure_date,
+                    MIN(f.arrival_date) as arrival_date,
+                    MIN(d.name) as destination_name,
+                    MIN(o.name) as origin_name,
+                    MIN(s.name) as starship_name,
+                    STRING_AGG(p.name || ' ' || p.primarylastname, ', ') as passenger_names,
+                    COUNT(p.id) as passenger_count
                 FROM reservations r
                 LEFT JOIN flights f ON r.space_flight_id = f.id
                 LEFT JOIN destinations d ON f.destination_id = d.id
                 LEFT JOIN destinations o ON f.origin_id = o.id
                 LEFT JOIN starships s ON f.starship_id = s.id
+                LEFT JOIN passengers p ON r.passenger_id = p.id
                 WHERE r.user_id = $1
-                ORDER BY r.created_at DESC
+                GROUP BY r.booking_group_id
+                ORDER BY MIN(r.created_at) DESC
             `;
             const resultado = await conexionBD.query(consulta, [pedido.usuario.id]);
             respuesta.json({ total: resultado.rowCount, datos: resultado.rows });
@@ -68,6 +79,13 @@ const customerController = {
     async getReservationById(pedido, respuesta) {
         const { id } = pedido.params;
         try {
+            // 1. Obtenemos la reserva base para saber el grupo
+            const resBase = await conexionBD.query('SELECT booking_group_id FROM reservations WHERE id = $1 AND user_id = $2', [id, pedido.usuario.id]);
+            if (resBase.rowCount === 0) return respuesta.status(404).json({ mensaje: 'Reserva no encontrada' });
+            
+            const groupId = resBase.rows[0].booking_group_id;
+
+            // 2. Obtenemos todos los datos agregados del grupo
             const consulta = `
                 SELECT 
                     r.*, 
@@ -76,7 +94,6 @@ const customerController = {
                     o.name as origin_name,
                     s.name as starship_name,
                     u.name as user_name, u.email as user_email, u.phone as user_phone, u.primarylastname as user_lastname,
-                    p.name as passenger_name, p.primarylastname as passenger_lastname, p.document_number as passenger_id_number, p.iris_passport_number,
                     l.*
                 FROM reservations r
                 LEFT JOIN flights f ON r.space_flight_id = f.id
@@ -84,13 +101,28 @@ const customerController = {
                 LEFT JOIN destinations o ON f.origin_id = o.id
                 LEFT JOIN starships s ON f.starship_id = s.id
                 LEFT JOIN users u ON r.user_id = u.id
-                LEFT JOIN passengers p ON r.passenger_id = p.id
                 LEFT JOIN reservation_logistics l ON r.id = l.reservation_id
-                WHERE r.id = $1 AND r.user_id = $2
+                WHERE r.booking_group_id = $1 AND r.user_id = $2
+                LIMIT 1
             `;
-            const resultado = await conexionBD.query(consulta, [id, pedido.usuario.id]);
-            if (resultado.rowCount === 0) return respuesta.status(404).json({ mensaje: 'Reserva no encontrada' });
-            respuesta.json(resultado.rows[0]);
+            const resultado = await conexionBD.query(consulta, [groupId, pedido.usuario.id]);
+            
+            // 3. Obtenemos la lista de todos los pasajeros del grupo
+            const consultaPasajeros = `
+                SELECT p.* 
+                FROM reservations r
+                JOIN passengers p ON r.passenger_id = p.id
+                WHERE r.booking_group_id = $1
+            `;
+            const resultadoPasajeros = await conexionBD.query(consultaPasajeros, [groupId]);
+
+            const reservaFinal = resultado.rows[0];
+            reservaFinal.all_passengers = resultadoPasajeros.rows;
+            reservaFinal.total_group_price = resultadoPasajeros.rowCount > 1 ? 
+                (await conexionBD.query('SELECT SUM(total_price) FROM reservations WHERE booking_group_id = $1', [groupId])).rows[0].sum : 
+                reservaFinal.total_price;
+
+            respuesta.json(reservaFinal);
         } catch (error) {
             console.error(error);
             respuesta.status(500).json({ mensaje: 'Error al obtener la reserva' });
