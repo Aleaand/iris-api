@@ -485,21 +485,25 @@ const customerController = {
                 RETURNING *, 'user' as sender_type
             `;
             const resLog = await conexionBD.query(consultaLog, [pedido.usuario.id, gestorId, textoFinal]);
-            const consultaTarea = `
-                INSERT INTO tasks (assigned_gestor_id, created_by, title, description, type, status, priority, created_at, updated_at)
-                VALUES ($1, $2, $3, $4, 'consulta_cliente', 'Pendiente', 'media', NOW(), NOW())
-            `;
-            await conexionBD.query(consultaTarea, [
-                gestorId,
-                pedido.usuario.id,
-                `Nuevo mensaje de ${userName}`,
-                textoFinal
-            ]);
+            try {
+                const consultaTarea = `
+                    INSERT INTO tasks (assigned_gestor_id, created_by, title, description, type, status, priority, created_at, updated_at)
+                    VALUES ($1, $2, $3, $4, 'consulta_cliente', 'Pendiente', 'media', NOW(), NOW())
+                `;
+                await conexionBD.query(consultaTarea, [
+                    gestorId,
+                    pedido.usuario.id,
+                    `Nuevo mensaje de ${userName}`,
+                    textoFinal
+                ]);
+            } catch (errorTarea) {
+                console.error("[IRIS API] Error no crítico al crear tarea de aviso:", errorTarea.message);
+            }
 
             respuesta.status(201).json({ mensaje: resLog.rows[0] });
         } catch (error) {
-            console.error(error);
-            respuesta.status(500).json({ mensaje: 'Error al enviar mensaje' });
+            console.error("[IRIS API] ERROR CRÍTICO EN SENDMESSAGE:", error);
+            respuesta.status(500).json({ mensaje: 'Error al enviar mensaje: ' + error.message });
         }
     },
 
