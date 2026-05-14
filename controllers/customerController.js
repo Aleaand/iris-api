@@ -161,6 +161,14 @@ const customerController = {
             logistics
         } = pedido.body;
 
+        if (pasajeros && Array.isArray(pasajeros)) {
+            pasajeros.forEach(p => {
+                for (let clave in p) {
+                    if (p[clave] === "") p[clave] = null;
+                }
+            });
+        }
+
         try {
             await conexionBD.query('BEGIN');
 
@@ -178,7 +186,7 @@ const customerController = {
                         RETURNING id
                     `, [pedido.usuario.id, p.nombre, p.apellido1, p.apellido2, p.dni, p.pais, p.fecha_nacimiento]);
                     const paxId = resPax.rows[0].id;
-                    const factorVuelos = vuelo_regreso_id ? 2 : 1;
+                    const factorVuelos = (vuelo_id && vuelo_regreso_id) ? 2 : 1;
                     const precioUnitario = (precio_total / (pasajeros.length * factorVuelos));
                     const resSalida = await conexionBD.query(`
                         INSERT INTO reservations (
@@ -216,7 +224,7 @@ const customerController = {
                             logistics.hotel_nights || 0,
                             (p.training_mode === 'request'),
                             (logistics.vip_transfer || false),
-                            (p.passport_mode === 'request'),
+                            (logistics.refund_insurance || false),
                             (p.passport_mode === 'request')
                         ]);
 
