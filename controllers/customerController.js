@@ -43,10 +43,17 @@ const customerController = {
     async getReservations(pedido, respuesta) {
         try {
             const consulta = `
-                SELECT r.*, f.flight_code, f.departure_date, d.name as destination_name
+                SELECT 
+                    r.*, 
+                    f.flight_code, f.departure_date, f.arrival_date,
+                    d.name as destination_name, 
+                    o.name as origin_name,
+                    s.name as starship_name
                 FROM reservations r
                 LEFT JOIN flights f ON r.space_flight_id = f.id
                 LEFT JOIN destinations d ON f.destination_id = d.id
+                LEFT JOIN destinations o ON f.origin_id = o.id
+                LEFT JOIN starships s ON f.starship_id = s.id
                 WHERE r.user_id = $1
                 ORDER BY r.created_at DESC
             `;
@@ -62,11 +69,22 @@ const customerController = {
         const { id } = pedido.params;
         try {
             const consulta = `
-                SELECT r.*, f.flight_code, f.departure_date, d.name as destination_name, 
-                       l.hotel_id, l.training_included, l.refund_insurance_included
+                SELECT 
+                    r.*, 
+                    f.flight_code, f.departure_date, f.arrival_date,
+                    d.name as destination_name, 
+                    o.name as origin_name,
+                    s.name as starship_name,
+                    u.name as user_name, u.email as user_email, u.phone as user_phone, u.primarylastname as user_lastname,
+                    p.name as passenger_name, p.primarylastname as passenger_lastname, p.document_number as passenger_id_number, p.iris_passport_number,
+                    l.*
                 FROM reservations r
                 LEFT JOIN flights f ON r.space_flight_id = f.id
                 LEFT JOIN destinations d ON f.destination_id = d.id
+                LEFT JOIN destinations o ON f.origin_id = o.id
+                LEFT JOIN starships s ON f.starship_id = s.id
+                LEFT JOIN users u ON r.user_id = u.id
+                LEFT JOIN passengers p ON r.passenger_id = p.id
                 LEFT JOIN reservation_logistics l ON r.id = l.reservation_id
                 WHERE r.id = $1 AND r.user_id = $2
             `;
