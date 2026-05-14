@@ -410,25 +410,31 @@ const customerController = {
 
     async getManagerProfile(pedido, respuesta) {
         try {
-            let consulta = `
-                SELECT m.id, m.name, m.email, m.phone, m.avatar 
-                FROM users u
-                JOIN users m ON u.assigned_manager_id = m.id
-                WHERE u.id = $1
-            `;
-            let resultado = await conexionBD.query(consulta, [pedido.usuario.id]);
-
-            if (resultado.rowCount === 0) {
+            const resUser = await conexionBD.query('SELECT assigned_manager_id FROM users WHERE id = $1', [pedido.usuario.id]);
+            if (resUser.rowCount === 0) return respuesta.status(404).json({ mensaje: 'Usuario no encontrado' });
+            let gestorId = resUser.rows[0].assigned_manager_id;
+            if (!gestorId) {
                 const resGestores = await conexionBD.query("SELECT id FROM users WHERE role IN ('gestor', 'admin') ORDER BY RANDOM() LIMIT 1");
                 if (resGestores.rowCount > 0) {
-                    const newGestorId = resGestores.rows[0].id;
-                    await conexionBD.query('UPDATE users SET assigned_manager_id = $1 WHERE id = $2', [newGestorId, pedido.usuario.id]);
-                    resultado = await conexionBD.query('SELECT id, name, email, phone, avatar FROM users WHERE id = $1', [newGestorId]);
+                    gestorId = resGestores.rows[0].id;
+                    await conexionBD.query('UPDATE users SET assigned_manager_id = $1 WHERE id = $2', [gestorId, pedido.usuario.id]);
                 } else {
-                    return respuesta.json({ id: 1, name: "Sin gestor", email: "", phone: "", avatar: null });
+                    gestorId = 1;
                 }
             }
-            respuesta.json(resultado.rows[0]);
+            const resManager = await conexionBD.query('SELECT id, name, email, phone, avatar FROM users WHERE id = $1', [gestorId]);
+            
+            if (resManager.rowCount > 0) {
+                respuesta.json(resManager.rows[0]);
+            } else {
+                 respuesta.json({ 
+                    id: gestorId, 
+                    name: "Desconocido", 
+                    email: "desconocido@gmail.com", 
+                    phone: "000000000", 
+                    avatar: null 
+                });
+            }
         } catch (error) {
             console.error(error);
             respuesta.status(500).json({ mensaje: 'Error al obtener perfil del gestor' });
