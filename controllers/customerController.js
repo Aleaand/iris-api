@@ -1,7 +1,7 @@
 const conexionBD = require('../config/db');
 
 const customerController = {
-    
+
     async getMe(pedido, respuesta) {
         try {
             const consulta = 'SELECT id, name, email, primarylastname, secondarylastname, phone, birth_date, role FROM users WHERE id = $1';
@@ -79,52 +79,62 @@ const customerController = {
     async getReservationById(pedido, respuesta) {
         const { id } = pedido.params;
         try {
-            // 1. Obtenemos la reserva base para saber el grupo
             const resBase = await conexionBD.query('SELECT booking_group_id FROM reservations WHERE id = $1 AND user_id = $2', [id, pedido.usuario.id]);
             if (resBase.rowCount === 0) return respuesta.status(404).json({ mensaje: 'Reserva no encontrada' });
-            
-            const groupId = resBase.rows[0].booking_group_id;
 
-            // 2. Obtenemos todos los datos agregados del grupo
-            const consulta = `
-                SELECT 
-                    r.*, 
+            const groupId = resBase.rows[0].booking_group_id;
+            const consultaVuelos = `
+                SELECT DISTINCT
                     f.flight_code, f.departure_date, f.arrival_date,
                     d.name as destination_name, 
                     o.name as origin_name,
                     s.name as starship_name,
+                    r.space_flight_id
+                FROM reservations r
+                JOIN flights f ON r.space_flight_id = f.id
+                LEFT JOIN destinations d ON f.destination_id = d.id
+                LEFT JOIN destinations o ON f.origin_id = o.id
+                LEFT JOIN starships s ON f.starship_id = s.id
+                WHERE r.booking_group_id = $1
+                ORDER BY f.departure_date ASC
+            `;
+            const resultadoVuelos = await conexionBD.query(consultaVuelos, [groupId]);
+            const consultaBase = `
+                SELECT 
+                    r.*, 
                     u.name as user_name, u.email as user_email, u.phone as user_phone, u.primarylastname as user_lastname,
                     l.*,
                     h.name as hotel_name,
                     tf.airline as transfer_name
                 FROM reservations r
-                LEFT JOIN flights f ON r.space_flight_id = f.id
-                LEFT JOIN destinations d ON f.destination_id = d.id
-                LEFT JOIN destinations o ON f.origin_id = o.id
-                LEFT JOIN starships s ON f.starship_id = s.id
                 LEFT JOIN users u ON r.user_id = u.id
                 LEFT JOIN reservation_logistics l ON r.id = l.reservation_id
                 LEFT JOIN hotels h ON l.hotel_id = h.id
                 LEFT JOIN terrestrial_flights tf ON l.terrestrial_flight_id = tf.id
                 WHERE r.booking_group_id = $1 AND r.user_id = $2
+                ORDER BY r.id ASC
                 LIMIT 1
             `;
-            const resultado = await conexionBD.query(consulta, [groupId, pedido.usuario.id]);
-            
-            // 3. Obtenemos la lista de todos los pasajeros del grupo
+            const resultadoBase = await conexionBD.query(consultaBase, [groupId, pedido.usuario.id]);
             const consultaPasajeros = `
                 SELECT p.* 
                 FROM reservations r
                 JOIN passengers p ON r.passenger_id = p.id
                 WHERE r.booking_group_id = $1
+                GROUP BY p.id
             `;
             const resultadoPasajeros = await conexionBD.query(consultaPasajeros, [groupId]);
 
-            const reservaFinal = resultado.rows[0];
+            const reservaFinal = resultadoBase.rows[0];
             reservaFinal.all_passengers = resultadoPasajeros.rows;
-            reservaFinal.total_group_price = resultadoPasajeros.rowCount > 1 ? 
-                (await conexionBD.query('SELECT SUM(total_price) FROM reservations WHERE booking_group_id = $1', [groupId])).rows[0].sum : 
-                reservaFinal.total_price;
+            reservaFinal.outbound_flight = resultadoVuelos.rows[0];
+            if (resultadoVuelos.rowCount > 1) {
+                reservaFinal.return_flight = resultadoVuelos.rows[1];
+            }
+
+            reservaFinal.total_group_price = (await conexionBD.query('SELECT SUM(total_price) FROM reservations WHERE booking_group_id = $1', [groupId])).rows[0].sum;
+
+            respuesta.json(reservaFinal);
 
             respuesta.json(reservaFinal);
         } catch (error) {
@@ -134,25 +144,24 @@ const customerController = {
     },
 
     async createReservation(pedido, respuesta) {
-        const { 
+        const {
             vuelo_id, vuelo_regreso_id,
             cantidad_pasajeros,
             clase_asiento,
             precio_total,
             pasajeros,
-            logistics 
+            logistics
         } = pedido.body;
 
         try {
             await conexionBD.query('BEGIN');
-            
+
             // Generar un ID de grupo para todas las reservas de esta transacción
             const bookingGroupId = require('crypto').randomUUID();
-            let lastReservaId;
+            let firstReservaId = null;
 
             if (pasajeros && Array.isArray(pasajeros)) {
                 for (const p of pasajeros) {
-                    // 1. Registrar Pasajero (UPSERT: Si ya existe por DNI/País, lo actualizamos y obtenemos el ID)
                     const resPax = await conexionBD.query(`
                         INSERT INTO passengers (user_id, name, primarylastname, secondarylastname, document_number, document_country, birth_date, created_at, updated_at)
                         VALUES ($1, $2, $3, $4, $5, $6, $7, NOW(), NOW())
@@ -161,29 +170,30 @@ const customerController = {
                         RETURNING id
                     `, [pedido.usuario.id, p.nombre, p.apellido1, p.apellido2, p.dni, p.pais, p.fecha_nacimiento]);
                     const paxId = resPax.rows[0].id;
-
-                    // 2. Crear Reserva (Siguiendo esquema Laravel)
-                    // Nota: El precio se distribuye o se asigna por pasajero según la lógica de la web
-                    const resRes = await conexionBD.query(`
+                    const factorVuelos = vuelo_regreso_id ? 2 : 1;
+                    const precioUnitario = (precio_total / (pasajeros.length * factorVuelos));
+                    const resSalida = await conexionBD.query(`
                         INSERT INTO reservations (
                             user_id, passenger_id, space_flight_id, seat_type, total_price, 
                             status, id_locator, booking_group_id, payment_status, price_snapshot, created_at, updated_at
                         )
                         VALUES ($1, $2, $3, $4, $5, 'Pendiente', $6, $7, 'pending', $8, NOW(), NOW())
                         RETURNING id
-                    `, [
-                        pedido.usuario.id, 
-                        paxId, 
-                        vuelo_id, 
-                        clase_asiento || 'none', 
-                        (precio_total / pasajeros.length), 
-                        require('crypto').randomUUID(),
-                        bookingGroupId,
-                        pedido.body.price_snapshot || null
-                    ]);
-                    lastReservaId = resRes.rows[0].id;
+                    `, [pedido.usuario.id, paxId, vuelo_id, clase_asiento || 'none', precioUnitario, require('crypto').randomUUID(), bookingGroupId, pedido.body.price_snapshot || null]);
 
-                    // 3. Logística Detallada (Ajustada a la tabla real)
+                    const currentReservaId = resSalida.rows[0].id;
+                    if (!firstReservaId) {
+                        firstReservaId = currentReservaId;
+                    }
+                    if (vuelo_regreso_id) {
+                        await conexionBD.query(`
+                            INSERT INTO reservations (
+                                user_id, passenger_id, space_flight_id, seat_type, total_price, 
+                                status, id_locator, booking_group_id, payment_status, price_snapshot, created_at, updated_at
+                            )
+                            VALUES ($1, $2, $3, $4, $5, 'Pendiente', $6, $7, 'pending', $8, NOW(), NOW())
+                        `, [pedido.usuario.id, paxId, vuelo_regreso_id, clase_asiento || 'none', precioUnitario, require('crypto').randomUUID(), bookingGroupId, null]);
+                    }
                     if (logistics) {
                         await conexionBD.query(`
                             INSERT INTO reservation_logistics (
@@ -193,12 +203,12 @@ const customerController = {
                             )
                             VALUES ($1, $2, $3, $4, $5, $6, $7, NOW(), NOW())
                         `, [
-                            lastReservaId, 
-                            logistics.hotel_id, 
+                            currentReservaId,
+                            logistics.hotel_id,
                             logistics.hotel_nights || 0,
                             (p.training_mode === 'request'),
                             (logistics.vip_transfer || false),
-                            (p.passport_mode === 'request'), // Usamos esto como flag de seguro/pasaporte según lógica previa
+                            (p.passport_mode === 'request'),
                             (p.passport_mode === 'request')
                         ]);
                     }
@@ -206,11 +216,11 @@ const customerController = {
             }
 
             await conexionBD.query('COMMIT');
-            respuesta.status(201).json({ id: lastReservaId, mensaje: 'Misión sincronizada con el Centro de Control' });
+            respuesta.status(201).json({ id: firstReservaId, mensaje: 'Misión sincronizada con el Centro de Control' });
         } catch (error) {
             await conexionBD.query('ROLLBACK');
             console.error('Error en Sincronización Iris:', error);
-            respuesta.status(500).json({ 
+            respuesta.status(500).json({
                 mensaje: 'Error al sincronizar misión con el sistema central',
                 error: error.message,
                 detalle: error.detail || 'No hay detalles adicionales'
@@ -273,7 +283,7 @@ const customerController = {
         const dni = pedido.body.dni || pedido.body.document_number;
         const pais = pedido.body.pais || pedido.body.document_country;
         const fecha_nacimiento = pedido.body.fecha_nacimiento || pedido.body.birth_date;
-        
+
         try {
             const consulta = `
                 UPDATE passengers 
