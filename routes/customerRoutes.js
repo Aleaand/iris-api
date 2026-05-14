@@ -30,6 +30,7 @@ router.get('/documents/:passengerId/passport', customerController.getPassport);
 // Mensajes
 router.get('/messages', customerController.getMessages);
 router.post('/messages', customerController.sendMessage);
+router.delete('/messages/:id', customerController.deleteMessage);
 
 // Pagos (Historial)
 router.get('/payments', customerController.getPayments);

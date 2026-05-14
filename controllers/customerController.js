@@ -464,6 +464,23 @@ const customerController = {
         }
     },
 
+    async deleteMessage(pedido, respuesta) {
+        const { id } = pedido.params;
+        try {
+            const consulta = 'DELETE FROM contact_logs WHERE id = $1 AND client_id = $2 RETURNING *';
+            const resultado = await conexionBD.query(consulta, [id, pedido.usuario.id]);
+            
+            if (resultado.rowCount === 0) {
+                return respuesta.status(404).json({ mensaje: 'Cita no encontrada o no tienes permisos' });
+            }
+
+            respuesta.json({ mensaje: 'Cita cancelada con éxito', eliminado: resultado.rows[0] });
+        } catch (error) {
+            console.error("[IRIS API] ERROR AL CANCELAR CITA:", error);
+            respuesta.status(500).json({ mensaje: 'Error al cancelar la cita' });
+        }
+    },
+
     async sendMessage(pedido, respuesta) {
         const { mensaje, contenido, type, zoom_link } = pedido.body;
         const textoFinal = mensaje || contenido || "";
