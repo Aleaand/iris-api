@@ -465,8 +465,10 @@ const customerController = {
     },
 
     async sendMessage(pedido, respuesta) {
-        const { mensaje, contenido } = pedido.body;
+        const { mensaje, contenido, type, zoom_link } = pedido.body;
         const textoFinal = mensaje || contenido || "";
+        const tipoFinal = type || 'nota_cliente';
+        const linkFinal = zoom_link || null;
 
         try {
             const resUser = await conexionBD.query('SELECT assigned_manager_id, name FROM users WHERE id = $1', [pedido.usuario.id]);
@@ -478,13 +480,22 @@ const customerController = {
                 gestorId = resGestores.rowCount > 0 ? resGestores.rows[0].id : 1;
                 await conexionBD.query('UPDATE users SET assigned_manager_id = $1 WHERE id = $2', [gestorId, pedido.usuario.id]);
             }
-            console.log(`Cliente ${userName} (ID: ${pedido.usuario.id}) envió un mensaje a su gestor (ID: ${gestorId}): "${textoFinal}"`);
+
+            console.log(`[IRIS API] Mensaje de ${userName} (Tipo: ${tipoFinal}): "${textoFinal.substring(0, 50)}..."`);
+
             const consultaLog = `
-                INSERT INTO contact_logs (client_id, gestor_id, type, notes, created_at, updated_at)
-                VALUES ($1, $2, 'nota_cliente', $3, NOW(), NOW())
+                INSERT INTO contact_logs (client_id, gestor_id, type, notes, zoom_link, created_at, updated_at)
+                VALUES ($1, $2, $3, $4, $5, NOW(), NOW())
                 RETURNING *, 'user' as sender_type
             `;
-            const resLog = await conexionBD.query(consultaLog, [pedido.usuario.id, gestorId, textoFinal]);
+            const resLog = await conexionBD.query(consultaLog, [
+                pedido.usuario.id, 
+                gestorId, 
+                tipoFinal, 
+                textoFinal,
+                linkFinal
+            ]);
+
             try {
                 const consultaTarea = `
                     INSERT INTO tasks (assigned_gestor_id, created_by, title, description, type, status, priority, created_at, updated_at)
@@ -493,16 +504,16 @@ const customerController = {
                 await conexionBD.query(consultaTarea, [
                     gestorId,
                     pedido.usuario.id,
-                    `Nuevo mensaje de ${userName}`,
+                    `Nuevo ${tipoFinal} de ${userName}`,
                     textoFinal
                 ]);
             } catch (errorTarea) {
-                console.error("[IRIS API] Error no crítico al crear tarea de aviso:", errorTarea.message);
+                console.error("[IRIS API] Error al crear tarea:", errorTarea.message);
             }
 
             respuesta.status(201).json({ mensaje: resLog.rows[0] });
         } catch (error) {
-            console.error("[IRIS API] ERROR CRÍTICO EN SENDMESSAGE:", error);
+            console.error("[IRIS API] ERROR EN SENDMESSAGE:", error);
             respuesta.status(500).json({ mensaje: 'Error al enviar mensaje: ' + error.message });
         }
     },
