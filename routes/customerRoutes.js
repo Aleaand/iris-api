@@ -33,4 +33,7 @@ router.post('/messages', customerController.sendMessage);
 // Pagos (Historial)
 router.get('/payments', customerController.getPayments);
 
+// Tareas (Gestión)
+router.post('/tasks', customerController.createTask);
+
 module.exports = router;
