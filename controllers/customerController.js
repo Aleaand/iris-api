@@ -219,6 +219,26 @@ const customerController = {
                             (p.passport_mode === 'request'),
                             (p.passport_mode === 'request')
                         ]);
+
+                        if (p.training_mode === 'request') {
+                            const datesStr = Array.isArray(p.training_dates) ? p.training_dates.filter(d => d).join(', ') : (p.training_dates || 'Sin fechas');
+                            const cityStr = p.training_city || 'Sin ciudad';
+
+                            const resUser = await conexionBD.query('SELECT assigned_manager_id FROM users WHERE id = $1', [pedido.usuario.id]);
+                            const gestorId = resUser.rows[0]?.assigned_manager_id || 1;
+
+                            await conexionBD.query(`
+                                INSERT INTO tasks (assigned_gestor_id, created_by, title, description, type, status, priority, created_at, updated_at)
+                                VALUES ($1, $2, $3, $4, $5, 'Pendiente', $6, NOW(), NOW())
+                            `, [
+                                gestorId,
+                                pedido.usuario.id,
+                                `[TRAINING] Sesiones para ${p.nombre} ${p.apellido1}`,
+                                `Programación de entrenamiento para la reserva #${currentReservaId}.\nCiudad: ${cityStr}\nFechas: ${datesStr}`,
+                                'training',
+                                'Alta'
+                            ]);
+                        }
                     }
                 }
             }
