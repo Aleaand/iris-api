@@ -9,6 +9,8 @@ router.use(verificarToken);
 // Perfil
 router.get('/', customerController.getMe);
 router.put('/', customerController.updateMe);
+router.delete('/', customerController.deleteAccount);
+router.put('/password', customerController.updatePassword);
 router.get('/manager', customerController.getManagerProfile);
 
 // Reservas

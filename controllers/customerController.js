@@ -1,4 +1,5 @@
 const conexionBD = require('../config/db');
+const bcrypt = require('bcryptjs');
 
 const customerController = {
 
@@ -469,7 +470,7 @@ const customerController = {
         try {
             const consulta = 'DELETE FROM contact_logs WHERE id = $1 AND client_id = $2 RETURNING *';
             const resultado = await conexionBD.query(consulta, [id, pedido.usuario.id]);
-            
+
             if (resultado.rowCount === 0) {
                 return respuesta.status(404).json({ mensaje: 'Cita no encontrada o no tienes permisos' });
             }
@@ -506,9 +507,9 @@ const customerController = {
                 RETURNING *, 'user' as sender_type
             `;
             const resLog = await conexionBD.query(consultaLog, [
-                pedido.usuario.id, 
-                gestorId, 
-                tipoFinal, 
+                pedido.usuario.id,
+                gestorId,
+                tipoFinal,
                 textoFinal,
                 linkFinal
             ]);
@@ -664,6 +665,59 @@ const customerController = {
         } catch (error) {
             console.error(error);
             respuesta.status(500).json({ mensaje: 'Error al crear la tarea' });
+        }
+    },
+
+    async updatePassword(pedido, respuesta) {
+        const { current_password, new_password } = pedido.body;
+        try {
+            const res = await conexionBD.query('SELECT password FROM users WHERE id = $1', [pedido.usuario.id]);
+            if (res.rowCount === 0) return respuesta.status(404).json({ mensaje: 'Usuario no encontrado' });
+
+            const usuario = res.rows[0];
+            const passwordCorrecta = await bcrypt.compare(current_password, usuario.password);
+
+            if (!passwordCorrecta) {
+                return respuesta.status(400).json({ mensaje: 'La contraseña actual es incorrecta' });
+            }
+
+            const sal = await bcrypt.genSalt(10);
+            const passwordHasheada = await bcrypt.hash(new_password, sal);
+
+            await conexionBD.query('UPDATE users SET password = $1, updated_at = NOW() WHERE id = $2', [passwordHasheada, pedido.usuario.id]);
+
+            respuesta.json({ mensaje: 'Contraseña actualizada con éxito' });
+        } catch (error) {
+            console.error('[IRIS API] ERROR AL CAMBIAR CONTRASEÑA:', error);
+            respuesta.status(500).json({ mensaje: 'Error al actualizar la contraseña' });
+        }
+    },
+
+    async deleteAccount(pedido, respuesta) {
+        try {
+            const resReservas = await conexionBD.query('SELECT id FROM reservations WHERE user_id = $1 LIMIT 1', [pedido.usuario.id]);
+            if (resReservas.rowCount > 0) {
+                return respuesta.status(400).json({
+                    mensaje: 'No puedes eliminar tu cuenta porque tienes misiones (reservas) asociadas. Por favor, cancela tus reservas o contacta con soporte.'
+                });
+            }
+
+            const resPasajeros = await conexionBD.query('SELECT id FROM passengers WHERE user_id = $1 LIMIT 1', [pedido.usuario.id]);
+            if (resPasajeros.rowCount > 0) {
+                return respuesta.status(400).json({
+                    mensaje: 'Debes eliminar primero tus pasajeros registrados antes de dar de baja la cuenta.'
+                });
+            }
+
+            await conexionBD.query('DELETE FROM contact_logs WHERE client_id = $1', [pedido.usuario.id]);
+            await conexionBD.query('DELETE FROM tasks WHERE created_by = $1', [pedido.usuario.id]);
+
+            await conexionBD.query('DELETE FROM users WHERE id = $1', [pedido.usuario.id]);
+
+            respuesta.json({ mensaje: 'Cuenta eliminada permanentemente del sistema Iris' });
+        } catch (error) {
+            console.error('[IRIS API] ERROR AL ELIMINAR CUENTA:', error);
+            respuesta.status(500).json({ mensaje: 'Error al procesar la baja de la cuenta' });
         }
     }
 };
