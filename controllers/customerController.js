@@ -411,8 +411,14 @@ const customerController = {
     async getManagerProfile(pedido, respuesta) {
         try {
             const resUser = await conexionBD.query('SELECT assigned_manager_id FROM users WHERE id = $1', [pedido.usuario.id]);
-            if (resUser.rowCount === 0) return respuesta.status(404).json({ mensaje: 'Usuario no encontrado' });
+            if (resUser.rowCount === 0) {
+                console.log("[IRIS API] Usuario no encontrado:", pedido.usuario.id);
+                return respuesta.status(404).json({ mensaje: 'Usuario no encontrado' });
+            }
+            
             let gestorId = resUser.rows[0].assigned_manager_id;
+            console.log("[IRIS API] ID de gestor actual:", gestorId);
+
             if (!gestorId) {
                 const resGestores = await conexionBD.query("SELECT id FROM users WHERE role IN ('gestor', 'admin') ORDER BY RANDOM() LIMIT 1");
                 if (resGestores.rowCount > 0) {
@@ -425,19 +431,20 @@ const customerController = {
             const resManager = await conexionBD.query('SELECT id, name, email, phone, avatar FROM users WHERE id = $1', [gestorId]);
             
             if (resManager.rowCount > 0) {
+                console.log("[IRIS API] Perfil de gestor encontrado:", resManager.rows[0].name);
                 respuesta.json(resManager.rows[0]);
             } else {
-                 respuesta.json({ 
+                console.log("[IRIS API] Gestor ID no existe en la BD, enviando datos genéricos");
+                respuesta.json({ 
                     id: gestorId, 
-                    name: "Desconocido", 
-                    email: "desconocido@gmail.com", 
-                    phone: "000000000", 
+                    name: "ERROR", 
+                    email: "error@iris.aero", 
+                    phone: "600000000", 
                     avatar: null 
                 });
             }
         } catch (error) {
-            console.error(error);
-            respuesta.status(500).json({ mensaje: 'Error al obtener perfil del gestor' });
+            respuesta.status(500).json({ mensaje: 'Error interno al obtener gestor' });
         }
     },
 
