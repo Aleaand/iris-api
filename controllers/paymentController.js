@@ -7,20 +7,28 @@ const paymentController = {
         const { reserva_id } = pedido.body;
 
         try {
-            const consultaReserva = 'SELECT total_price FROM reservations WHERE id = $1 AND user_id = $2';
-            const resultadoReserva = await conexionBD.query(consultaReserva, [reserva_id, pedido.usuario.id]);
-
-            if (resultadoReserva.rowCount === 0) {
+            const resInit = await conexionBD.query('SELECT total_price, booking_group_id FROM reservations WHERE id = $1 AND user_id = $2', [reserva_id, pedido.usuario.id]);
+            
+            if (resInit.rowCount === 0) {
                 return respuesta.status(404).json({ mensaje: 'Reserva no encontrada' });
             }
 
-            const monto = Math.round(parseFloat(resultadoReserva.rows[0].total_price) * 100);
+            const { total_price, booking_group_id } = resInit.rows[0];
+            let montoFinal = parseFloat(total_price);
+            if (booking_group_id) {
+                const resGrupo = await conexionBD.query('SELECT SUM(total_price) as total_grupo FROM reservations WHERE booking_group_id = $1', [booking_group_id]);
+                montoFinal = parseFloat(resGrupo.rows[0].total_grupo);
+                console.log(`Pago de Grupo Detectado (${booking_group_id}). Total a cobrar: ${montoFinal}`);
+            }
+
+            const montoCenti = Math.round(montoFinal * 100);
 
             const intent = await stripe.paymentIntents.create({
-                amount: monto,
+                amount: montoCenti,
                 currency: 'eur',
                 metadata: {
                     reserva_id: reserva_id,
+                    booking_group_id: booking_group_id || 'none',
                     usuario_id: pedido.usuario.id
                 }
             });
@@ -39,38 +47,36 @@ const paymentController = {
     async handleWebhook(pedido, respuesta) {
         console.log('--- Webhook de Stripe Recibido ---');
         try {
-            const payload = pedido.body.toString();
-            const evento = JSON.parse(payload);
-            console.log(`Evento Detectado: ${evento.type}`);
+                const payload = pedido.body.toString();
+                const evento = JSON.parse(payload);
+                console.log(`Evento Detectado: ${evento.type}`);
 
-            if (evento.type === 'payment_intent.succeeded') {
-                const paymentIntent = evento.data.object;
-                const reservaId = paymentIntent.metadata.reserva_id;
-                const usuarioId = paymentIntent.metadata.usuario_id;
-                console.log(`Procesando Pago Exitoso para Reserva #${reservaId}...`);
+                if (evento.type === 'payment_intent.succeeded') {
+                    const paymentIntent = evento.data.object;
+                    const reservaId = paymentIntent.metadata.reserva_id;
+                    const bookingGroupId = paymentIntent.metadata.booking_group_id;
+                    const usuarioId = paymentIntent.metadata.usuario_id;
+                    
+                    console.log(`Procesando Pago Exitoso para Reserva #${reservaId} (Grupo: ${bookingGroupId})...`);
 
-                const cargos = await stripe.charges.list({ payment_intent: paymentIntent.id });
-                const receiptUrl = cargos.data.length > 0 ? cargos.data[0].receipt_url : null;
-                
-                const stripeReceipts = [{
-                    type: 'payment',
-                    amount: (paymentIntent.amount / 100).toFixed(2),
-                    date: new Date().toISOString().slice(0, 19).replace('T', ' '),
-                    description: 'Pago Original (Checkout)',
-                    url: receiptUrl
-                }];
+                    const cargos = await stripe.charges.list({ payment_intent: paymentIntent.id });
+                    const receiptUrl = cargos.data.length > 0 ? cargos.data[0].receipt_url : null;
+                    
+                    const stripeReceipts = [{
+                        type: 'payment',
+                        amount: (paymentIntent.amount / 100).toFixed(2),
+                        date: new Date().toISOString().slice(0, 19).replace('T', ' '),
+                        description: `Pago Misión Iris (Reserva #${reservaId}${bookingGroupId !== 'none' ? ' + Grupo' : ''})`,
+                        url: receiptUrl
+                    }];
 
-                const resUpdate = await conexionBD.query(`
-                    UPDATE reservations 
-                    SET payment_status = 'paid', 
-                        status = 'Confirmada', 
-                        paid_at = NOW(), 
-                        stripe_receipt_url = $1, 
-                        stripe_receipts = $2, 
-                        stripe_session_id = $3 
-                    WHERE id = $4 
-                    RETURNING id
-                `, [receiptUrl, JSON.stringify(stripeReceipts), paymentIntent.id, parseInt(reservaId)]);
+                    const updateQuery = bookingGroupId !== 'none' 
+                        ? "UPDATE reservations SET payment_status = 'paid', status = 'Confirmada', paid_at = NOW(), stripe_receipt_url = $1, stripe_receipts = $2, stripe_session_id = $3 WHERE booking_group_id = $4 RETURNING id"
+                        : "UPDATE reservations SET payment_status = 'paid', status = 'Confirmada', paid_at = NOW(), stripe_receipt_url = $1, stripe_receipts = $2, stripe_session_id = $3 WHERE id = $4 RETURNING id";
+                    
+                    const updateParam = bookingGroupId !== 'none' ? bookingGroupId : parseInt(reservaId);
+
+                    const resUpdate = await conexionBD.query(updateQuery, [receiptUrl, JSON.stringify(stripeReceipts), paymentIntent.id, updateParam]);
 
                 if (resUpdate.rowCount > 0) {
                     console.log(`Reserva ${reservaId} actualizada a 'Confirmada' en BD.`);
