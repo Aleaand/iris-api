@@ -412,16 +412,20 @@ const customerController = {
         try {
             const resUser = await conexionBD.query('SELECT assigned_manager_id FROM users WHERE id = $1', [pedido.usuario.id]);
             const gestorId = (resUser.rowCount > 0) ? (resUser.rows[0].assigned_manager_id || 1) : 1;
-            const resManager = await conexionBD.query(`
-                SELECT id, 
-                TRIM(CONCAT(name, ' ', primarylastname, ' ', COALESCE(secondarylastname, ''))) as name, 
-                email, phone, avatar 
-                FROM users 
-                WHERE id = $1
-            `, [gestorId]);
+
+            const resManager = await conexionBD.query('SELECT * FROM users WHERE id = $1', [gestorId]);
 
             if (resManager.rowCount > 0) {
-                return respuesta.json(resManager.rows[0]);
+                const m = resManager.rows[0];
+                const fullName = `${m.name || ""} ${m.primarylastname || ""} ${m.secondarylastname || ""}`.replace(/\s+/g, ' ').trim();
+
+                return respuesta.json({
+                    id: m.id,
+                    name: fullName || "Gestor Sin Nombre",
+                    email: m.email,
+                    phone: m.phone,
+                    avatar: m.avatar || null
+                });
             }
 
             return respuesta.json({
@@ -432,11 +436,11 @@ const customerController = {
                 avatar: null
             });
         } catch (error) {
-            console.error("ERROR IRIS GESTOR:", error);
+            console.error("DEBUG IRIS GESTOR ERROR:", error);
             return respuesta.json({
                 id: 1,
-                name: "Desconocido",
-                email: "desconocido@iris.aero",
+                name: "Desconocido (Error API)",
+                email: "error@iris.aero",
                 phone: "000000000",
                 avatar: null
             });
