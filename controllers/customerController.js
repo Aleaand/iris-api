@@ -443,9 +443,52 @@ const customerController = {
 
     async getPayments(pedido, respuesta) {
         try {
-            const consulta = 'SELECT id, total_price, status, payment_status, paid_at, stripe_receipt_url FROM reservations WHERE user_id = $1 AND payment_status = \'paid\' ORDER BY paid_at DESC';
+            const consulta = `
+                SELECT 
+                    id as reservation_id, 
+                    total_price as amount, 
+                    payment_status,
+                    paid_at,
+                    updated_at,
+                    stripe_receipt_url,
+                    stripe_session_id,
+                    stripe_receipts
+                FROM reservations 
+                WHERE user_id = $1 AND (payment_status = 'paid' OR payment_status = 'refunded')
+                ORDER BY COALESCE(paid_at, updated_at) DESC
+            `;
             const resultado = await conexionBD.query(consulta, [pedido.usuario.id]);
-            respuesta.json({ total: resultado.rowCount, datos: resultado.rows });
+            let pagosExpandidos = [];
+            resultado.rows.forEach(res => {
+                const receipts = res.stripe_receipts || [];
+                if (receipts.length > 0) {
+                    receipts.forEach((r, index) => {
+                        pagosExpandidos.push({
+                            id: `${res.reservation_id}_${index}`,
+                            reservation_id: res.reservation_id,
+                            amount: parseFloat(r.amount),
+                            status: r.type === 'refund' ? 'Reembolsado' : 'Pagado',
+                            created_at: r.date,
+                            invoice_url: r.url,
+                            stripe_payment_id: res.stripe_session_id,
+                            description: r.description || `Misión Iris #${res.reservation_id}`
+                        });
+                    });
+                } else {
+                    pagosExpandidos.push({
+                        id: res.reservation_id,
+                        reservation_id: res.reservation_id,
+                        amount: parseFloat(res.amount),
+                        status: res.payment_status === 'paid' ? 'Pagado' : 'Reembolsado',
+                        created_at: res.paid_at || res.updated_at,
+                        invoice_url: res.stripe_receipt_url,
+                        stripe_payment_id: res.stripe_session_id,
+                        description: `Reserva #${res.reservation_id}`
+                    });
+                }
+            });
+
+            respuesta.json({ total: pagosExpandidos.length, datos: pagosExpandidos });
         } catch (error) {
             console.error(error);
             respuesta.status(500).json({ mensaje: 'Error al obtener pagos' });
