@@ -9,6 +9,7 @@ router.use(verificarToken);
 // Perfil
 router.get('/', customerController.getMe);
 router.put('/', customerController.updateMe);
+router.get('/manager', customerController.getManagerProfile);
 
 // Reservas
 router.get('/reservations', customerController.getReservations);

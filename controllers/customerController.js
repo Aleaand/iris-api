@@ -408,9 +408,42 @@ const customerController = {
         }
     },
 
+    async getManagerProfile(pedido, respuesta) {
+        try {
+            let consulta = `
+                SELECT m.id, m.name, m.email, m.phone, m.avatar 
+                FROM users u
+                JOIN users m ON u.assigned_manager_id = m.id
+                WHERE u.id = $1
+            `;
+            let resultado = await conexionBD.query(consulta, [pedido.usuario.id]);
+
+            if (resultado.rowCount === 0) {
+                const resGestores = await conexionBD.query("SELECT id FROM users WHERE role IN ('gestor', 'admin') ORDER BY RANDOM() LIMIT 1");
+                if (resGestores.rowCount > 0) {
+                    const newGestorId = resGestores.rows[0].id;
+                    await conexionBD.query('UPDATE users SET assigned_manager_id = $1 WHERE id = $2', [newGestorId, pedido.usuario.id]);
+                    resultado = await conexionBD.query('SELECT id, name, email, phone, avatar FROM users WHERE id = $1', [newGestorId]);
+                } else {
+                    return respuesta.json({ id: 1, name: "Sin gestor", email: "", phone: "", avatar: null });
+                }
+            }
+            respuesta.json(resultado.rows[0]);
+        } catch (error) {
+            console.error(error);
+            respuesta.status(500).json({ mensaje: 'Error al obtener perfil del gestor' });
+        }
+    },
+
     async getMessages(pedido, respuesta) {
         try {
-            const consulta = 'SELECT * FROM contact_logs WHERE client_id = $1 ORDER BY created_at DESC';
+            const consulta = `
+                SELECT *, 
+                CASE WHEN type = 'nota_cliente' THEN 'user' ELSE 'manager' END as sender_type 
+                FROM contact_logs 
+                WHERE client_id = $1 
+                ORDER BY created_at ASC
+            `;
             const resultado = await conexionBD.query(consulta, [pedido.usuario.id]);
             respuesta.json({ total: resultado.rowCount, datos: resultado.rows });
         } catch (error) {
@@ -424,17 +457,34 @@ const customerController = {
         const textoFinal = mensaje || contenido || "";
 
         try {
-            // Buscamos el gestor asignado al cliente
-            const resUser = await conexionBD.query('SELECT assigned_manager_id FROM users WHERE id = $1', [pedido.usuario.id]);
-            const gestorId = resUser.rows[0].assigned_manager_id || 1; // Fallback al gestor 1 si no hay asignado
+            const resUser = await conexionBD.query('SELECT assigned_manager_id, name FROM users WHERE id = $1', [pedido.usuario.id]);
+            let gestorId = resUser.rows[0].assigned_manager_id;
+            const userName = resUser.rows[0].name;
 
-            const consulta = `
+            if (!gestorId) {
+                const resGestores = await conexionBD.query("SELECT id FROM users WHERE role IN ('gestor', 'admin') ORDER BY RANDOM() LIMIT 1");
+                gestorId = resGestores.rowCount > 0 ? resGestores.rows[0].id : 1;
+                await conexionBD.query('UPDATE users SET assigned_manager_id = $1 WHERE id = $2', [gestorId, pedido.usuario.id]);
+            }
+
+            // 1. Guardar en logs (con tipo nota_cliente para identificarlo en el chat)
+            const consultaLog = `
                 INSERT INTO contact_logs (client_id, gestor_id, type, notes, created_at, updated_at)
-                VALUES ($1, $2, 'nota', $3, NOW(), NOW())
-                RETURNING *
+                VALUES ($1, $2, 'nota_cliente', $3, NOW(), NOW())
+                RETURNING *, 'user' as sender_type
             `;
-            const resultado = await conexionBD.query(consulta, [pedido.usuario.id, gestorId, textoFinal]);
-            respuesta.status(201).json(resultado.rows[0]);
+            const resLog = await conexionBD.query(consultaLog, [pedido.usuario.id, gestorId, textoFinal]);
+            const consultaTarea = `
+                INSERT INTO tasks (assigned_gestor_id, created_by, title, description, type, status, priority, created_at, updated_at)
+                VALUES ($1, $2, $3, $4, 'consulta_cliente', 'Pendiente', 'media', NOW(), NOW())
+            `;
+            await conexionBD.query(consultaTarea, [
+                gestorId,
+                pedido.usuario.id,
+                `El cliente ${userName} ha enviado un mensaje: "${textoFinal.substring(0, 50)}..."`
+            ]);
+
+            respuesta.status(201).json({ mensaje: resLog.rows[0] });
         } catch (error) {
             console.error(error);
             respuesta.status(500).json({ mensaje: 'Error al enviar mensaje' });
