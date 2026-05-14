@@ -94,7 +94,9 @@ const customerController = {
                     o.name as origin_name,
                     s.name as starship_name,
                     u.name as user_name, u.email as user_email, u.phone as user_phone, u.primarylastname as user_lastname,
-                    l.*
+                    l.*,
+                    h.name as hotel_name,
+                    t.name as transfer_name
                 FROM reservations r
                 LEFT JOIN flights f ON r.space_flight_id = f.id
                 LEFT JOIN destinations d ON f.destination_id = d.id
@@ -102,6 +104,8 @@ const customerController = {
                 LEFT JOIN starships s ON f.starship_id = s.id
                 LEFT JOIN users u ON r.user_id = u.id
                 LEFT JOIN reservation_logistics l ON r.id = l.reservation_id
+                LEFT JOIN hotels h ON l.hotel_id = h.id
+                LEFT JOIN transfers t ON l.transfer_id = t.id
                 WHERE r.booking_group_id = $1 AND r.user_id = $2
                 LIMIT 1
             `;
