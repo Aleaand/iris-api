@@ -260,6 +260,11 @@ const customerController = {
     },
 
     async createPassenger(pedido, respuesta) {
+        const campos = { ...pedido.body };
+        for (let clave in campos) {
+            if (campos[clave] === "") campos[clave] = null;
+        }
+
         const {
             name, primarylastname, secondarylastname,
             document_number, document_country, birth_date,
@@ -267,7 +272,7 @@ const customerController = {
             iris_passport_number, iris_passport_expiration,
             training_certificate_date, training_certificate_status,
             passport_photo, passport_status, passport_pdf
-        } = pedido.body;
+        } = campos;
         if (!name || !primarylastname || !document_number || !document_country || !birth_date) {
             return respuesta.status(400).json({ mensaje: 'Nombre, primer apellido, documento, país y fecha de nacimiento son obligatorios.' });
         }
@@ -303,6 +308,11 @@ const customerController = {
 
     async updatePassenger(pedido, respuesta) {
         const { id } = pedido.params;
+        const campos = { ...pedido.body };
+        for (let clave in campos) {
+            if (campos[clave] === "") campos[clave] = null;
+        }
+
         const {
             name, primarylastname, secondarylastname,
             document_number, document_country, birth_date,
@@ -310,7 +320,7 @@ const customerController = {
             iris_passport_number, iris_passport_expiration,
             training_certificate_date, training_certificate_status,
             passport_photo, passport_status, passport_pdf
-        } = pedido.body;
+        } = campos;
 
         try {
             const consulta = `
