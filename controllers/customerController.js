@@ -411,40 +411,35 @@ const customerController = {
     async getManagerProfile(pedido, respuesta) {
         try {
             const resUser = await conexionBD.query('SELECT assigned_manager_id FROM users WHERE id = $1', [pedido.usuario.id]);
-            if (resUser.rowCount === 0) {
-                console.log("[IRIS API] Usuario no encontrado:", pedido.usuario.id);
-                return respuesta.status(404).json({ mensaje: 'Usuario no encontrado' });
-            }
-            
-            let gestorId = resUser.rows[0].assigned_manager_id;
-            console.log("[IRIS API] ID de gestor actual:", gestorId);
+            const gestorId = (resUser.rowCount > 0) ? (resUser.rows[0].assigned_manager_id || 1) : 1;
+            const resManager = await conexionBD.query(`
+                SELECT id, 
+                TRIM(CONCAT(name, ' ', primarylastname, ' ', COALESCE(secondarylastname, ''))) as name, 
+                email, phone, avatar 
+                FROM users 
+                WHERE id = $1
+            `, [gestorId]);
 
-            if (!gestorId) {
-                const resGestores = await conexionBD.query("SELECT id FROM users WHERE role IN ('gestor', 'admin') ORDER BY RANDOM() LIMIT 1");
-                if (resGestores.rowCount > 0) {
-                    gestorId = resGestores.rows[0].id;
-                    await conexionBD.query('UPDATE users SET assigned_manager_id = $1 WHERE id = $2', [gestorId, pedido.usuario.id]);
-                } else {
-                    gestorId = 1;
-                }
-            }
-            const resManager = await conexionBD.query('SELECT id, name, email, phone, avatar FROM users WHERE id = $1', [gestorId]);
-            
             if (resManager.rowCount > 0) {
-                console.log("[IRIS API] Perfil de gestor encontrado:", resManager.rows[0].name);
-                respuesta.json(resManager.rows[0]);
-            } else {
-                console.log("[IRIS API] Gestor ID no existe en la BD, enviando datos genéricos");
-                respuesta.json({ 
-                    id: gestorId, 
-                    name: "ERROR", 
-                    email: "error@iris.aero", 
-                    phone: "600000000", 
-                    avatar: null 
-                });
+                return respuesta.json(resManager.rows[0]);
             }
+
+            return respuesta.json({
+                id: gestorId,
+                name: "Gestor Iris",
+                email: "soporte@iris.aero",
+                phone: "+34 600 000 000",
+                avatar: null
+            });
         } catch (error) {
-            respuesta.status(500).json({ mensaje: 'Error interno al obtener gestor' });
+            console.error("ERROR IRIS GESTOR:", error);
+            return respuesta.json({
+                id: 1,
+                name: "Desconocido",
+                email: "desconocido@iris.aero",
+                phone: "000000000",
+                avatar: null
+            });
         }
     },
 
@@ -479,8 +474,7 @@ const customerController = {
                 gestorId = resGestores.rowCount > 0 ? resGestores.rows[0].id : 1;
                 await conexionBD.query('UPDATE users SET assigned_manager_id = $1 WHERE id = $2', [gestorId, pedido.usuario.id]);
             }
-
-            // 1. Guardar en logs (con tipo nota_cliente para identificarlo en el chat)
+            console.log(`Cliente ${userName} (ID: ${pedido.usuario.id}) envió un mensaje a su gestor (ID: ${gestorId}): "${textoFinal}"`);
             const consultaLog = `
                 INSERT INTO contact_logs (client_id, gestor_id, type, notes, created_at, updated_at)
                 VALUES ($1, $2, 'nota_cliente', $3, NOW(), NOW())
