@@ -556,6 +556,54 @@ const customerController = {
         }
     },
 
+    async getManagerAvailability(pedido, respuesta) {
+        try {
+            const resUser = await conexionBD.query('SELECT assigned_manager_id FROM users WHERE id = $1', [pedido.usuario.id]);
+            const gestorId = (resUser.rowCount > 0) ? (resUser.rows[0].assigned_manager_id || 1) : 1;
+
+            const consultaLogs = `
+                SELECT notes FROM contact_logs 
+                WHERE gestor_id = $1 
+                AND (notes LIKE '%FECHA PROGRAMADA:%' OR notes LIKE '%REUNIÓN PROGRAMADA:%')
+            `;
+            const resLogs = await conexionBD.query(consultaLogs, [gestorId]);
+
+            const ocupados = resLogs.rows.map(row => {
+                const match = row.notes.match(/(?:FECHA|REUNIÓN) PROGRAMADA: (\d{4}-\d{2}-\d{2})T(\d{2}:\d{2})/);
+                return match ? `${match[1]}T${match[2]}` : null;
+            }).filter(Boolean);
+            const slots = [];
+            const hoy = new Date();
+
+            for (let i = 1; i <= 7; i++) {
+                const fecha = new Date(hoy);
+                fecha.setDate(hoy.getDate() + i);
+                const diaSemana = fecha.getDay();
+                if (diaSemana >= 1 && diaSemana <= 5) {
+                    const fechaStr = fecha.toISOString().split('T')[0];
+
+                    for (let hora = 9; hora <= 17; hora++) {
+                        const horaStr = hora.toString().padStart(2, '0') + ':00';
+                        const fullSlot = `${fechaStr}T${horaStr}`;
+
+                        if (!ocupados.includes(fullSlot)) {
+                            slots.push({
+                                date: fechaStr,
+                                time: horaStr,
+                                full: fullSlot
+                            });
+                        }
+                    }
+                }
+            }
+
+            respuesta.json({ slots });
+        } catch (error) {
+            console.error(error);
+            respuesta.status(500).json({ mensaje: 'Error al obtener disponibilidad' });
+        }
+    },
+
     async createTask(pedido, respuesta) {
         const { title, description, type, priority } = pedido.body;
         try {

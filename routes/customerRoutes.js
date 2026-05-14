@@ -33,6 +33,7 @@ router.post('/messages', customerController.sendMessage);
 
 // Pagos (Historial)
 router.get('/payments', customerController.getPayments);
+router.get('/manager/availability', customerController.getManagerAvailability);
 
 // Tareas (Gestión)
 router.post('/tasks', customerController.createTask);
