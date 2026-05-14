@@ -492,7 +492,8 @@ const customerController = {
             await conexionBD.query(consultaTarea, [
                 gestorId,
                 pedido.usuario.id,
-                `El cliente ${userName} ha enviado un mensaje: "${textoFinal.substring(0, 50)}..."`
+                `Nuevo mensaje de ${userName}`,
+                textoFinal
             ]);
 
             respuesta.status(201).json({ mensaje: resLog.rows[0] });
