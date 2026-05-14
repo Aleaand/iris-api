@@ -559,34 +559,44 @@ const customerController = {
     async getManagerAvailability(pedido, respuesta) {
         try {
             const resUser = await conexionBD.query('SELECT assigned_manager_id FROM users WHERE id = $1', [pedido.usuario.id]);
-            const gestorId = (resUser.rowCount > 0) ? (resUser.rows[0].assigned_manager_id || 1) : 1;
+            const gestorId = (resUser.rowCount > 0) ? (resUser.rows[0].assigned_manager_id || 6) : 6;
+
+            console.log(`[IRIS API] Consultando disponibilidad para Gestor ID: ${gestorId}`);
 
             const consultaLogs = `
                 SELECT notes FROM contact_logs 
                 WHERE gestor_id = $1 
-                AND (notes LIKE '%FECHA PROGRAMADA:%' OR notes LIKE '%REUNIÓN PROGRAMADA:%')
+                AND (notes ILIKE '%PROGRAMADA:%' OR notes ILIKE '%REUNIÓN%')
             `;
             const resLogs = await conexionBD.query(consultaLogs, [gestorId]);
 
-            const ocupados = resLogs.rows.map(row => {
-                const match = row.notes.match(/(?:FECHA|REUNIÓN) PROGRAMADA: (\d{4}-\d{2}-\d{2})T(\d{2}:\d{2})/);
-                return match ? `${match[1]}T${match[2]}` : null;
-            }).filter(Boolean);
+            const ocupados = new Set();
+            resLogs.rows.forEach(row => {
+                const match = row.notes.match(/(\d{4}-\d{2}-\d{2})[T\s](\d{2}:\d{2})/);
+                if (match) {
+                    ocupados.add(`${match[1]}T${match[2]}`);
+                }
+            });
+
             const slots = [];
             const hoy = new Date();
 
             for (let i = 1; i <= 7; i++) {
-                const fecha = new Date(hoy);
-                fecha.setDate(hoy.getDate() + i);
-                const diaSemana = fecha.getDay();
+                const f = new Date();
+                f.setDate(hoy.getDate() + i);
+
+                const diaSemana = f.getDay();
                 if (diaSemana >= 1 && diaSemana <= 5) {
-                    const fechaStr = fecha.toISOString().split('T')[0];
+                    const yyyy = f.getFullYear();
+                    const mm = String(f.getMonth() + 1).padStart(2, '0');
+                    const dd = String(f.getDate()).padStart(2, '0');
+                    const fechaStr = `${yyyy}-${mm}-${dd}`;
 
                     for (let hora = 9; hora <= 17; hora++) {
                         const horaStr = hora.toString().padStart(2, '0') + ':00';
                         const fullSlot = `${fechaStr}T${horaStr}`;
 
-                        if (!ocupados.includes(fullSlot)) {
+                        if (!ocupados.has(fullSlot)) {
                             slots.push({
                                 date: fechaStr,
                                 time: horaStr,
@@ -596,11 +606,10 @@ const customerController = {
                     }
                 }
             }
-
-            respuesta.json({ slots });
+            return respuesta.json({ slots });
         } catch (error) {
-            console.error(error);
-            respuesta.status(500).json({ mensaje: 'Error al obtener disponibilidad' });
+            console.error("AVAILABILITY ERROR:", error);
+            return respuesta.status(500).json({ mensaje: 'Error al obtener disponibilidad' });
         }
     },
 
