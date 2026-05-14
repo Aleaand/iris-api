@@ -364,7 +364,9 @@ const customerController = {
     },
 
     async sendMessage(pedido, respuesta) {
-        const { mensaje } = pedido.body;
+        const { mensaje, contenido } = pedido.body;
+        const textoFinal = mensaje || contenido || "";
+        
         try {
             // Buscamos el gestor asignado al cliente
             const resUser = await conexionBD.query('SELECT assigned_manager_id FROM users WHERE id = $1', [pedido.usuario.id]);
@@ -375,7 +377,7 @@ const customerController = {
                 VALUES ($1, $2, 'nota', $3, NOW(), NOW())
                 RETURNING *
             `;
-            const resultado = await conexionBD.query(consulta, [pedido.usuario.id, gestorId, mensaje]);
+            const resultado = await conexionBD.query(consulta, [pedido.usuario.id, gestorId, textoFinal]);
             respuesta.status(201).json(resultado.rows[0]);
         } catch (error) {
             console.error(error);
