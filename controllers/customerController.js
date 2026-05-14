@@ -559,31 +559,29 @@ const customerController = {
     async getManagerAvailability(pedido, respuesta) {
         try {
             const resUser = await conexionBD.query('SELECT assigned_manager_id FROM users WHERE id = $1', [pedido.usuario.id]);
-            const gestorId = (resUser.rowCount > 0) ? (resUser.rows[0].assigned_manager_id || 6) : 6;
+            const gestorId = (resUser.rowCount > 0 && resUser.rows[0].assigned_manager_id) ? resUser.rows[0].assigned_manager_id : 6;
 
-            console.log(`[IRIS API] Consultando disponibilidad para Gestor ID: ${gestorId}`);
+            console.log(`[IRIS API] Buscando slots para Gestor ID: ${gestorId} (Usuario ID: ${pedido.usuario.id})`);
 
             const consultaLogs = `
                 SELECT notes FROM contact_logs 
                 WHERE gestor_id = $1 
-                AND (notes ILIKE '%PROGRAMADA:%' OR notes ILIKE '%REUNIÓN%')
+                AND notes ~* '(FECHA|REUNIÓN) PROGRAMADA'
             `;
             const resLogs = await conexionBD.query(consultaLogs, [gestorId]);
 
             const ocupados = new Set();
             resLogs.rows.forEach(row => {
                 const match = row.notes.match(/(\d{4}-\d{2}-\d{2})[T\s](\d{2}:\d{2})/);
-                if (match) {
-                    ocupados.add(`${match[1]}T${match[2]}`);
-                }
+                if (match) ocupados.add(`${match[1]}T${match[2]}`);
             });
 
             const slots = [];
-            const hoy = new Date();
-
-            for (let i = 1; i <= 7; i++) {
-                const f = new Date();
-                f.setDate(hoy.getDate() + i);
+            let fechaCursor = new Date();
+            fechaCursor.setHours(0, 0, 0, 0);
+            for (let i = 1; i <= 14; i++) {
+                const f = new Date(fechaCursor);
+                f.setDate(fechaCursor.getDate() + i);
 
                 const diaSemana = f.getDay();
                 if (diaSemana >= 1 && diaSemana <= 5) {
@@ -597,19 +595,16 @@ const customerController = {
                         const fullSlot = `${fechaStr}T${horaStr}`;
 
                         if (!ocupados.has(fullSlot)) {
-                            slots.push({
-                                date: fechaStr,
-                                time: horaStr,
-                                full: fullSlot
-                            });
+                            slots.push({ date: fechaStr, time: horaStr, full: fullSlot });
                         }
                     }
                 }
             }
-            return respuesta.json({ slots });
+
+            console.log(`[IRIS API] Slots generados: ${slots.length}`);
+            return respuesta.json({ slots, gestorId });
         } catch (error) {
-            console.error("AVAILABILITY ERROR:", error);
-            return respuesta.status(500).json({ mensaje: 'Error al obtener disponibilidad' });
+            return respuesta.status(500).json({ mensaje: 'Error interno de disponibilidad' });
         }
     },
 
