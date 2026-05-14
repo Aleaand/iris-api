@@ -57,17 +57,22 @@ const publicController = {
     },
 
     async searchFlights(pedido, respuesta) {
-        const { destination_id, departure_date_from, departure_date_to, seat_type, min_seats } = pedido.query;
+        const { origin_id, destination_id, departure_date_from, departure_date_to, seat_type, min_seats } = pedido.query;
         try {
             let consulta = `
-                SELECT f.*, d.name as destination_name 
+                SELECT f.*, d.name as destination_name, o.name as origin_name 
                 FROM flights f
                 JOIN destinations d ON f.destination_id = d.id
+                LEFT JOIN destinations o ON f.origin_id = o.id
                 WHERE f.status != 'cancelled'
             `;
             const parametros = [];
             let contador = 1;
 
+            if (origin_id) {
+                consulta += ` AND f.origin_id = $${contador++}`;
+                parametros.push(origin_id);
+            }
             if (destination_id) {
                 consulta += ` AND f.destination_id = $${contador++}`;
                 parametros.push(destination_id);
