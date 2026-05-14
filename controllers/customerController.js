@@ -260,21 +260,40 @@ const customerController = {
     },
 
     async createPassenger(pedido, respuesta) {
-        // Soporte para nombres de campos tanto en español como en inglés
-        const nombre = pedido.body.nombre || pedido.body.name;
-        const apellido1 = pedido.body.apellido1 || pedido.body.primarylastname;
-        const apellido2 = pedido.body.apellido2 || pedido.body.secondarylastname || "";
-        const dni = pedido.body.dni || pedido.body.document_number;
-        const pais = pedido.body.pais || pedido.body.document_country || "ESP";
-        const fecha_nacimiento = pedido.body.fecha_nacimiento || pedido.body.birth_date;
+        const {
+            name, primarylastname, secondarylastname,
+            document_number, document_country, birth_date,
+            blood_type, allergies, physical_fitness,
+            iris_passport_number, iris_passport_expiration,
+            training_certificate_date, training_certificate_status,
+            passport_photo, passport_status, passport_pdf
+        } = pedido.body;
+        if (!name || !primarylastname || !document_number || !document_country || !birth_date) {
+            return respuesta.status(400).json({ mensaje: 'Nombre, primer apellido, documento, país y fecha de nacimiento son obligatorios.' });
+        }
 
         try {
             const consulta = `
-                INSERT INTO passengers (user_id, name, primarylastname, secondarylastname, document_number, document_country, birth_date, created_at, updated_at)
-                VALUES ($1, $2, $3, $4, $5, $6, $7, NOW(), NOW())
+                INSERT INTO passengers (
+                    user_id, name, primarylastname, secondarylastname, 
+                    document_number, document_country, birth_date,
+                    blood_type, allergies, physical_fitness,
+                    iris_passport_number, iris_passport_expiration,
+                    training_certificate_date, training_certificate_status,
+                    passport_photo, passport_status, passport_pdf,
+                    created_at, updated_at
+                )
+                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, NOW(), NOW())
                 RETURNING *
             `;
-            const resultado = await conexionBD.query(consulta, [pedido.usuario.id, nombre, apellido1, apellido2, dni, pais, fecha_nacimiento]);
+            const resultado = await conexionBD.query(consulta, [
+                pedido.usuario.id, name, primarylastname, secondarylastname || '',
+                document_number, document_country, birth_date,
+                blood_type || '', allergies || '', physical_fitness || 'No apto',
+                iris_passport_number || '', iris_passport_expiration || null,
+                training_certificate_date || null, training_certificate_status || 'Pendiente',
+                passport_photo || '', passport_status || 'none', passport_pdf || ''
+            ]);
             respuesta.status(201).json(resultado.rows[0]);
         } catch (error) {
             console.error(error);
@@ -284,12 +303,14 @@ const customerController = {
 
     async updatePassenger(pedido, respuesta) {
         const { id } = pedido.params;
-        const nombre = pedido.body.nombre || pedido.body.name;
-        const apellido1 = pedido.body.apellido1 || pedido.body.primarylastname;
-        const apellido2 = pedido.body.apellido2 || pedido.body.secondarylastname;
-        const dni = pedido.body.dni || pedido.body.document_number;
-        const pais = pedido.body.pais || pedido.body.document_country;
-        const fecha_nacimiento = pedido.body.fecha_nacimiento || pedido.body.birth_date;
+        const {
+            name, primarylastname, secondarylastname,
+            document_number, document_country, birth_date,
+            blood_type, allergies, physical_fitness,
+            iris_passport_number, iris_passport_expiration,
+            training_certificate_date, training_certificate_status,
+            passport_photo, passport_status, passport_pdf
+        } = pedido.body;
 
         try {
             const consulta = `
@@ -300,11 +321,29 @@ const customerController = {
                     document_number = COALESCE($4, document_number), 
                     document_country = COALESCE($5, document_country), 
                     birth_date = COALESCE($6, birth_date),
+                    blood_type = COALESCE($7, blood_type),
+                    allergies = COALESCE($8, allergies),
+                    physical_fitness = COALESCE($9, physical_fitness),
+                    iris_passport_number = COALESCE($10, iris_passport_number),
+                    iris_passport_expiration = COALESCE($11, iris_passport_expiration),
+                    training_certificate_date = COALESCE($12, training_certificate_date),
+                    training_certificate_status = COALESCE($13, training_certificate_status),
+                    passport_photo = COALESCE($14, passport_photo),
+                    passport_status = COALESCE($15, passport_status),
+                    passport_pdf = COALESCE($16, passport_pdf),
                     updated_at = NOW()
-                WHERE id = $7 AND user_id = $8
+                WHERE id = $17 AND user_id = $18
                 RETURNING *
             `;
-            const resultado = await conexionBD.query(consulta, [nombre, apellido1, apellido2, dni, pais, fecha_nacimiento, id, pedido.usuario.id]);
+            const resultado = await conexionBD.query(consulta, [
+                name, primarylastname, secondarylastname,
+                document_number, document_country, birth_date,
+                blood_type, allergies, physical_fitness,
+                iris_passport_number, iris_passport_expiration,
+                training_certificate_date, training_certificate_status,
+                passport_photo, passport_status, passport_pdf,
+                id, pedido.usuario.id
+            ]);
             if (resultado.rowCount === 0) return respuesta.status(404).json({ mensaje: 'Pasajero no encontrado' });
             respuesta.json(resultado.rows[0]);
         } catch (error) {
@@ -316,10 +355,17 @@ const customerController = {
     async deletePassenger(pedido, respuesta) {
         const { id } = pedido.params;
         try {
+            const checkReserva = await conexionBD.query('SELECT id FROM reservations WHERE passenger_id = $1 LIMIT 1', [id]);
+            if (checkReserva.rowCount > 0) {
+                return respuesta.status(403).json({
+                    mensaje: 'No se puede eliminar el pasajero porque tiene reservas asociadas.'
+                });
+            }
+
             const consulta = 'DELETE FROM passengers WHERE id = $1 AND user_id = $2 RETURNING id';
             const resultado = await conexionBD.query(consulta, [id, pedido.usuario.id]);
             if (resultado.rowCount === 0) return respuesta.status(404).json({ mensaje: 'Pasajero no encontrado' });
-            respuesta.json({ mensaje: 'Pasajero eliminado', id: resultado.rows[0].id });
+            respuesta.json({ mensaje: 'Pasajero eliminado con éxito', id: resultado.rows[0].id });
         } catch (error) {
             console.error(error);
             respuesta.status(500).json({ mensaje: 'Error al eliminar pasajero' });
