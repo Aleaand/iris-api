@@ -50,19 +50,26 @@ const customerController = {
                     MIN(r.payment_status) as payment_status,
                     SUM(r.total_price) as total_price,
                     MIN(r.created_at) as created_at,
-                    MIN(f.flight_code) as flight_code,
-                    MIN(f.departure_date) as departure_date,
-                    MIN(f.arrival_date) as arrival_date,
-                    MIN(d.name) as destination_name,
-                    MIN(o.name) as origin_name,
-                    MIN(s.name) as starship_name,
-                    STRING_AGG(p.name || ' ' || p.primarylastname, ', ') as passenger_names,
-                    COUNT(p.id) as passenger_count
+                    STRING_AGG(DISTINCT p.name || ' ' || p.primarylastname, ', ') as passenger_names,
+                    COUNT(DISTINCT p.id) as passenger_count,
+                    (
+                        SELECT json_agg(
+                            json_build_object(
+                                'flight_code', f.flight_code,
+                                'departure_date', f.departure_date,
+                                'arrival_date', f.arrival_date,
+                                'destination_name', d.name,
+                                'origin_name', o.name,
+                                'starship_name', s.name
+                            ) ORDER BY f.departure_date ASC
+                        )
+                        FROM (SELECT DISTINCT space_flight_id FROM reservations WHERE booking_group_id = r.booking_group_id) rf
+                        JOIN flights f ON rf.space_flight_id = f.id
+                        LEFT JOIN destinations d ON f.destination_id = d.id
+                        LEFT JOIN destinations o ON f.origin_id = o.id
+                        LEFT JOIN starships s ON f.starship_id = s.id
+                    ) as flights
                 FROM reservations r
-                LEFT JOIN flights f ON r.space_flight_id = f.id
-                LEFT JOIN destinations d ON f.destination_id = d.id
-                LEFT JOIN destinations o ON f.origin_id = o.id
-                LEFT JOIN starships s ON f.starship_id = s.id
                 LEFT JOIN passengers p ON r.passenger_id = p.id
                 WHERE r.user_id = $1
                 GROUP BY r.booking_group_id
