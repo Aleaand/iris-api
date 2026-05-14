@@ -10,7 +10,8 @@ async function obtenerPrecioActual(tipoItem) {
             'vip_transfer': 1000.0,
             'passport_management': 2500.0,
             'refund_insurance': 10.0,
-            'crew_expense_per_au': 12.0
+            'crew_expense_per_au': 12.0,
+            'air_transfer': 1500.0
         };
         return valoresDefecto[tipoItem] || 0.0;
     } catch (error) {
@@ -164,7 +165,9 @@ const publicController = {
                 training: await obtenerPrecioActual('training'),
                 vip_transfer: await obtenerPrecioActual('vip_transfer'),
                 passport_management: await obtenerPrecioActual('passport_management'),
-                refund_insurance_pct: await obtenerPrecioActual('refund_insurance')
+                refund_insurance_pct: await obtenerPrecioActual('refund_insurance'),
+                crew_expense_per_au: await obtenerPrecioActual('crew_expense_per_au'),
+                air_transfer: await obtenerPrecioActual('air_transfer')
             };
             respuesta.json(tarifas);
         } catch (error) {
