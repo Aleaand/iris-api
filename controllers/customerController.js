@@ -69,9 +69,14 @@ const customerController = {
                         LEFT JOIN destinations d ON f.destination_id = d.id
                         LEFT JOIN destinations o ON f.origin_id = o.id
                         LEFT JOIN starships s ON f.starship_id = s.id
-                    ) as flights
+                    ) as flights,
+                    BOOL_OR(l.training_included) as has_training,
+                    BOOL_OR(l.passport_management_included) as has_passport,
+                    BOOL_OR(l.vip_transfer_included) as has_vip,
+                    BOOL_OR(l.hotel_id IS NOT NULL) as has_hotel
                 FROM reservations r
                 LEFT JOIN passengers p ON r.passenger_id = p.id
+                LEFT JOIN reservation_logistics l ON r.id = l.reservation_id
                 WHERE r.user_id = $1
                 GROUP BY r.booking_group_id
                 ORDER BY MIN(r.created_at) DESC
