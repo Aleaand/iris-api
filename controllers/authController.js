@@ -15,12 +15,26 @@ const authController = {
             if (usuarioExistente.rowCount > 0) return respuesta.status(400).json({ mensaje: 'El correo electrónico ya está registrado' });
             const sal = await bcrypt.genSalt(10);
             const passwordHasheada = await bcrypt.hash(password, sal);
+
+            // Buscar al gestor/admin con menos clientes asignados
+            const consultaGestor = `
+                SELECT u.id 
+                FROM users u 
+                LEFT JOIN users c ON c.assigned_manager_id = u.id 
+                WHERE u.role IN ('gestor', 'admin') 
+                GROUP BY u.id 
+                ORDER BY COUNT(c.id) ASC 
+                LIMIT 1
+            `;
+            const resGestor = await conexionBD.query(consultaGestor);
+            const gestorId = resGestor.rowCount > 0 ? resGestor.rows[0].id : null;
+
             const consulta = `
-                INSERT INTO users (name, email, password, primarylastname, secondarylastname, role, created_at, updated_at)
-                VALUES ($1, $2, $3, $4, $5, $6, NOW(), NOW())
+                INSERT INTO users (name, email, password, primarylastname, secondarylastname, role, assigned_manager_id, created_at, updated_at)
+                VALUES ($1, $2, $3, $4, $5, $6, $7, NOW(), NOW())
                 RETURNING id, name, email
             `;
-            const valores = [nombre, email, passwordHasheada, apellido1, apellido2, 'cliente'];
+            const valores = [nombre, email, passwordHasheada, apellido1, apellido2, 'cliente', gestorId];
             const nuevoUsuario = await conexionBD.query(consulta, valores);
             respuesta.status(201).json({ mensaje: 'Registro exitoso', usuario: nuevoUsuario.rows[0] });
         } catch (error) {
