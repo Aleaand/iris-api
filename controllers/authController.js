@@ -3,7 +3,7 @@ const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 
 const authController = {
-    
+
     async register(pedido, respuesta) {
         const nombre = pedido.body.nombre || pedido.body.name;
         const email = pedido.body.email;
@@ -16,7 +16,7 @@ const authController = {
             const sal = await bcrypt.genSalt(10);
             const passwordHasheada = await bcrypt.hash(password, sal);
 
-            // Buscar al gestor/admin con menos clientes asignados
+             // Buscar al gestor/admin con menos clientes asignados
             const consultaGestor = `
                 SELECT u.id 
                 FROM users u 
@@ -75,7 +75,7 @@ const authController = {
         try {
             const resultado = await conexionBD.query('SELECT * FROM users WHERE email = $1', [email]);
             if (resultado.rowCount === 0) return respuesta.status(404).json({ mensaje: 'No existe un usuario con ese correo' });
-            
+
             // Generamos un token aleatorio de 6 dígitos para la recuperación de contraseña
             const token = Math.floor(100000 + Math.random() * 900000).toString();
             const expiracion = new Date();
@@ -89,10 +89,10 @@ const authController = {
             // Esto es solo simulación
             //Realmente aquí deberías enviar un correo electrónico al usuario con el token de recuperación
             console.log(`[IRIS AUTH] Token de recuperación para ${email}: ${token}`);
-            
-            respuesta.json({ 
+
+            respuesta.json({
                 mensaje: 'Se ha enviado un código de recuperación a su correo electrónico.',
-                debug_token: token 
+                debug_token: token
             });
         } catch (error) {
             console.error(error);
