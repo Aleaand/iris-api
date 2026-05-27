@@ -4,6 +4,15 @@ require('dotenv').config();
 
 const servidor = express();
 const puerto = process.env.PORT || 3000;
+
+// Validación de variables de entorno recomendadas
+const variablesCriticas = ['DB_HOST', 'DB_PORT', 'DB_DATABASE', 'DB_USERNAME', 'DB_PASSWORD', 'JWT_SECRET', 'STRIPE_SECRET'];
+const faltantes = variablesCriticas.filter(v => !process.env[v]);
+if (faltantes.length > 0) {
+  console.warn(`\x1b[33m⚠️ ADVERTENCIA: Faltan variables de entorno esenciales: ${faltantes.join(', ')}\x1b[0m`);
+  console.warn(`\x1b[33mAsegúrate de tener un archivo .env configurado correctamente en local.\x1b[0m`);
+}
+
 servidor.use(cors());
 const rutasPublicas = require('./routes/publicRoutes');
 const rutasAuth = require('./routes/authRoutes');

@@ -49,19 +49,22 @@ npm install
 ```
 
 ### 3. Variables de Entorno
-Crea un archivo `.env` en la raíz del proyecto tomando como referencia las variables necesarias para conectar con NeonTech y Stripe:
+Crea un archivo `.env` en la raíz del proyecto. Puedes copiar el archivo `.env.example` y rellenar los valores correctos para conectar con NeonTech y Stripe:
 
 ```env
 # Ejemplo de .env
-PORT=5000
-DB_USER=usuario_neon
-DB_HOST=ep-nombre-servidor.neon.tech
-DB_NAME=iris_db
-DB_PASSWORD=tu_contraseña
-DB_PORT=5432
+PORT=3001
+NODE_ENV=development
 
-JWT_SECRET=tu_clave_secreta
-STRIPE_SECRET_KEY=sk_test_...
+DB_HOST=ep-nombre-servidor.neon.tech
+DB_PORT=5432
+DB_DATABASE=iris_db
+DB_USERNAME=tu_usuario
+DB_PASSWORD=tu_contraseña
+DB_SSL=true
+
+JWT_SECRET=tu_clave_secreta_jwt
+STRIPE_SECRET=sk_test_...
 ```
 
 ### 4. Ejecutar el servidor
