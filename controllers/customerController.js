@@ -587,7 +587,16 @@ const customerController = {
             `;
             const resultado = await conexionBD.query(consulta, [pedido.usuario.id]);
             let pagosExpandidos = [];
+            let stripeSessionIdsVistos = new Set();
             resultado.rows.forEach(res => {
+                const sessionId = res.stripe_session_id;
+                if (sessionId) {
+                    if (stripeSessionIdsVistos.has(sessionId)) {
+                        return;
+                    }
+                    stripeSessionIdsVistos.add(sessionId);
+                }
+
                 const receipts = res.stripe_receipts || [];
                 if (receipts.length > 0) {
                     receipts.forEach((r, index) => {
