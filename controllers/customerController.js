@@ -148,8 +148,6 @@ const customerController = {
             reservaFinal.total_group_price = (await conexionBD.query('SELECT SUM(total_price) FROM reservations WHERE booking_group_id = $1', [groupId])).rows[0].sum;
 
             respuesta.json(reservaFinal);
-
-            respuesta.json(reservaFinal);
         } catch (error) {
             console.error(error);
             respuesta.status(500).json({ mensaje: 'Error al obtener la reserva' });
